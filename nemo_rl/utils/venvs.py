@@ -99,7 +99,7 @@ def create_local_venv(
     # subprocess.run(exec_cmd, env=env, check=True)
 
     # Return the path to the python executable in the virtual environment
-    venv_path = "/lustre/fsn1/projects/rech/knb/ukq43aj/nemotest/nemo-rl/.venv"
+    venv_path = "/lustre/fsn1/projects/rech/knb/ukq43aj/rl/nemo-rl/.venv"
     python_path = os.path.join(venv_path, "bin", "python")
     return python_path
 

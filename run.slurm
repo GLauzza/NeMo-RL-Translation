@@ -20,7 +20,7 @@ module load cuda/12.8.0
 module load nccl/2.27.3-1-cuda
 export TORCH_CUDA_ARCH_LIST=8.0
 
-source /lustre/fsn1/projects/rech/knb/ukq43aj/nemotest/nemo-rl/.venv/bin/activate
+source /lustre/fsn1/projects/rech/knb/ukq43aj/rl/nemo-rl/.venv/bin/activate
 
 set -x
 export WANDB_MODE=offline
