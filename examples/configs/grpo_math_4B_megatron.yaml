@@ -1,0 +1,92 @@
+# GRPO Algorithm Configuration
+defaults: "grpo_math_1B_megatron.yaml"
+
+grpo:
+  num_prompts_per_step: 4
+  num_generations_per_prompt: 32
+  overlong_filtering: true
+  # async_grpo:
+  #   enabled: true
+  #   max_trajectory_age_steps: 1  # Maximum age, in training steps, for trajectories
+  #   in_flight_weight_updates: false  # Enable for faster weight synchronization
+  #   recompute_kv_cache_after_weight_updates: false # Invalidates kv cache after in-flight-weight-updates
+
+
+checkpointing:
+  enabled: false
+  checkpoint_dir: "results/grpo_4b_megatron"
+  checkpoint_must_save_by: null
+
+policy:
+  model_name: "/lustre/fsn1/projects/rech/knb/ukq43aj/Models/Qwen3-4B-Thinking-2507"
+  tokenizer:
+    name: ${policy.model_name} ## specify if you'd like to use a tokenizer different from the model's default
+  train_global_batch_size: 32
+  train_micro_batch_size: 1
+  generation_batch_size: 1 # Only used when generating using HF backend
+  logprob_batch_size: 1
+  max_total_sequence_length: 1024
+  precision: "bfloat16"
+
+  dtensor_cfg:
+    enabled: false
+
+  optimizer: null # remove default FSDP optimizer
+
+  scheduler: null # remove default FSDP scheduler
+
+  megatron_cfg:
+    enabled: true
+    empty_unused_memory_level: 1  # 1 is the minimum recommendation for RL since we almost always need to offload before beginning generation. Setting to 0 is faster, but you are more likely to run out of GPU memory.
+    converter_type: "Qwen3ForCausalLM"
+    tensor_model_parallel_size: 1
+    # On H100, can run with pp=1 for better performance with expandable segments (which is enabled by default)
+    pipeline_model_parallel_size: 1
+    context_parallel_size: 1
+    pipeline_dtype: ${policy.precision}
+
+    optimizer:
+      optimizer: "adam"
+      lr: 3.0e-7
+      min_lr: 3.0e-8
+      weight_decay: 0.01
+      bf16: true
+      fp16: false
+      params_dtype: "float32"
+
+    scheduler:
+      start_weight_decay: ${policy.megatron_cfg.optimizer.weight_decay}
+      end_weight_decay: ${policy.megatron_cfg.optimizer.weight_decay}
+      weight_decay_incr_style: "constant"
+      lr_decay_style: "constant"
+      lr_decay_iters: 1000
+      lr_warmup_iters: 13
+      lr_warmup_init: 3.0e-8
+
+  generation:
+    backend: "vllm"
+    max_new_tokens: ${policy.max_total_sequence_length}
+    temperature: 1.0
+    top_p: 1.0
+    top_k: null
+    stop_token_ids: null
+    stop_strings: null
+    vllm_cfg:
+      # async_engine: true
+      tensor_parallel_size: 1
+      pipeline_parallel_size: 1
+      gpu_memory_utilization: 0.9
+      max_model_len: ${policy.max_total_sequence_length}
+    # colocated:
+    #   enabled: false
+    #   resources:
+    #     num_nodes: 1  # or more
+    #     gpus_per_node: 2  # adjust based on your setup
+
+
+# loss_fn:
+#   use_importance_sampling_correction: true
+
+cluster:
+  gpus_per_node: 1
+  num_nodes: 1

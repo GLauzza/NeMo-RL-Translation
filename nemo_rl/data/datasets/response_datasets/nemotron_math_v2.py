@@ -1,18 +1,3 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-
 from typing import Any, Optional
 
 from datasets import Dataset, load_dataset
@@ -39,19 +24,20 @@ def format_math(
     }
 
 
-def prepare_openinstructmath2_dataset(
-    split: str = "train_1M",
+def prepare_nemotron_math_v2_dataset(
+    split: str = "high_part00",
     seed: int = 42,
     test_size: float = 0.05,
     output_key: str = "expected_answer",
 ) -> dict[str, Dataset | None]:
-    """Load and split the OpenMathInstruct-2 dataset into train and validation sets using HF's train_test_split."""
+    """Load and split the Nemotron-Math-v2 dataset into train and validation sets using HF's train_test_split."""
     print(
         "WARNING: For reproducible experiments, preprocess the dataset once and define your own HfDataset subclass that directly uses the preprocessed datasets."
     )
 
     # Load the original dataset
-    original_ds = load_dataset("/lustre/fsn1/projects/rech/knb/ukq43aj/Datasets/OpenMathInstruct-2", split=split)
+    original_ds = load_dataset("/lustre/fsn1/projects/rech/knb/ukq43aj/.cache/huggingface/hub/datasets--nvidia--Nemotron-Math-v2/snapshots/8e793210e175b6406c752a870f585f62de98c0d3", split=split)
+    original_ds = original_ds.shuffle().select(range(1000)).filter(lambda x: len(x["tools"]) == 0)
 
     # Split into train and validation sets using HF's train_test_split
     split_ds = original_ds.train_test_split(test_size=test_size, seed=seed)
@@ -74,32 +60,32 @@ def prepare_openinstructmath2_dataset(
     }
 
 
-class OpenMathInstruct2Dataset:
+class Nemotron_math_v2_Dataset:
     def __init__(
         self,
-        split: str = "train_1M",
+        split: str = "high_part00",
         seed: int = 42,
         test_size: float = 0.05,
         output_key: str = "expected_answer",
         prompt_file: Optional[str] = None,
     ):
-        """Initialize the OpenMathInstruct2 dataset with train/validation split.
+        """Initialize the Nemotron_math_v2 dataset with train/validation split.
 
         Args:
             seed: Random seed for reproducible splitting
             test_size: Proportion of data to use for validation (0.0-1.0)
         """
         # train, train_1M, train_2M, and train_5M are supported splits.
-        if split not in ["train", "train_1M", "train_2M", "train_5M"]:
+        if split not in ["high_part00", "high_part01", "high_part02", "medium", "low"]:
             raise ValueError(
-                f"Invalid split: {split}. Please use 'train', 'train_1M', 'train_2M', or 'train_5M'."
+                f'Invalid split: {split}. Please use "high_part00", "high_part01", "high_part02", "medium", "low".'
             )
 
-        self.formatted_ds = prepare_openinstructmath2_dataset(
+        self.formatted_ds = prepare_nemotron_math_v2_dataset(
             split=split, seed=seed, test_size=test_size, output_key=output_key
         )
 
         self.task_spec = TaskDataSpec(
-            task_name="OpenMathInstruct-2",
+            task_name="Nemotron-Math-v2",
             prompt_file=prompt_file,
         )

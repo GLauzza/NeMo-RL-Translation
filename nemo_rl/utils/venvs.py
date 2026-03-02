@@ -57,48 +57,49 @@ def create_local_venv(
     #
     # You can override this location by setting the NEMO_RL_VENV_DIR environment variable
 
-    NEMO_RL_VENV_DIR = os.path.normpath(
-        os.environ.get("NEMO_RL_VENV_DIR", DEFAULT_VENV_DIR)
-    )
-    logger.info(f"NEMO_RL_VENV_DIR is set to {NEMO_RL_VENV_DIR}.")
+    # NEMO_RL_VENV_DIR = os.path.normpath(
+    #     os.environ.get("NEMO_RL_VENV_DIR", DEFAULT_VENV_DIR)
+    # )
+    # logger.info(f"NEMO_RL_VENV_DIR is set to {NEMO_RL_VENV_DIR}.")
 
-    # Create the venv directory if it doesn't exist
-    os.makedirs(NEMO_RL_VENV_DIR, exist_ok=True)
+    # # Create the venv directory if it doesn't exist
+    # os.makedirs(NEMO_RL_VENV_DIR, exist_ok=True)
 
-    # Full path to the virtual environment
-    venv_path = os.path.join(NEMO_RL_VENV_DIR, venv_name)
+    # # Full path to the virtual environment
+    # venv_path = os.path.join(NEMO_RL_VENV_DIR, venv_name)
 
-    # Force rebuild if requested
-    if force_rebuild and os.path.exists(venv_path):
-        logger.info(f"Force rebuilding venv at {venv_path}")
-        import shutil
+    # # Force rebuild if requested
+    # if force_rebuild and os.path.exists(venv_path):
+    #     logger.info(f"Force rebuilding venv at {venv_path}")
+    #     import shutil
 
-        shutil.rmtree(venv_path)
+    #     shutil.rmtree(venv_path)
 
-    logger.info(f"Creating new venv at {venv_path}")
+    # logger.info(f"Creating new venv at {venv_path}")
 
-    # Create the virtual environment
-    uv_venv_cmd = ["uv", "venv", "--allow-existing", venv_path]
-    subprocess.run(uv_venv_cmd, check=True)
+    # # Create the virtual environment
+    # uv_venv_cmd = ["uv", "venv", "--allow-existing", venv_path]
+    # subprocess.run(uv_venv_cmd, check=True)
 
-    # Execute the command with the virtual environment
-    env = os.environ.copy()
-    # NOTE: UV_PROJECT_ENVIRONMENT is appropriate here only b/c there should only be
-    #  one call to this in the driver. It is not safe to use this in a multi-process
-    #  context.
-    #  https://docs.astral.sh/uv/concepts/projects/config/#project-environment-path
-    env["UV_PROJECT_ENVIRONMENT"] = venv_path
+    # # Execute the command with the virtual environment
+    # env = os.environ.copy()
+    # # NOTE: UV_PROJECT_ENVIRONMENT is appropriate here only b/c there should only be
+    # #  one call to this in the driver. It is not safe to use this in a multi-process
+    # #  context.
+    # #  https://docs.astral.sh/uv/concepts/projects/config/#project-environment-path
+    # env["UV_PROJECT_ENVIRONMENT"] = venv_path
 
-    # Split the py_executable into command and arguments
-    exec_cmd = shlex.split(py_executable)
-    # Command doesn't matter, since `uv` syncs the environment no matter the command.
-    exec_cmd.extend(["echo", f"Finished creating venv {venv_path}"])
+    # # Split the py_executable into command and arguments
+    # exec_cmd = shlex.split(py_executable)
+    # # Command doesn't matter, since `uv` syncs the environment no matter the command.
+    # exec_cmd.extend(["echo", f"Finished creating venv {venv_path}"])
 
-    # Always run uv sync first to ensure the build requirements are set (for --no-build-isolation packages)
-    subprocess.run(["uv", "sync", "--directory", git_root], env=env, check=True)
-    subprocess.run(exec_cmd, env=env, check=True)
+    # # Always run uv sync first to ensure the build requirements are set (for --no-build-isolation packages)
+    # subprocess.run(["uv", "sync", "--directory", git_root], env=env, check=True)
+    # subprocess.run(exec_cmd, env=env, check=True)
 
     # Return the path to the python executable in the virtual environment
+    venv_path = "/lustre/fsn1/projects/rech/knb/ukq43aj/nemotest/nemo-rl/.venv"
     python_path = os.path.join(venv_path, "bin", "python")
     return python_path
 

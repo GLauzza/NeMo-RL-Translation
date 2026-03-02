@@ -50,6 +50,9 @@ from nemo_rl.models.generation.interfaces import (
 )
 from nemo_rl.utils.timer import Timer
 
+from nemo_rl.experience.translate import translate
+
+
 TokenizerType = PreTrainedTokenizerBase
 
 
@@ -63,33 +66,53 @@ def generate_responses(
     greedy: bool = False,
 ) -> tuple[BatchedDataDict[DatumSpec], list[torch.Tensor], dict[str, float | int]]:
     """Generate responses from policy using synchronous generation."""
-    # Add stop_strings to generation_input_data if present in the batch
-    if "stop_strings" in batch:
-        generation_input_data["stop_strings"] = batch["stop_strings"]
-    else:
-        # Ensure the key exists even if it's None, matching GenerationDatumSpec
-        generation_input_data["stop_strings"] = [None] * len(input_lengths)
+    for do_translate in range(2):
+        if do_translate:
+            translate(generated_texts, tokenizer)
+            # conversations = [
+            #     [
+            #         {"role": "user", "content": f"Translate the following text in french:\n{text}"},
+            #     ]
+            #     for text in generated_texts
+            # ]
+            # formatted_texts = [
+            #     tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            #     for messages in conversations
+            # ]
+            # tokenized_texts = tokenizer(formatted_texts, padding=True, return_tensors="pt", return_length=True)
+            # generation_input_data = BatchedDataDict[GenerationDatumSpec]({"input_ids": tokenized_texts["input_ids"], "input_lengths": tokenized_texts["length"]})        
 
-    # Always use synchronous generation
-    generation_outputs = policy_generation.generate(
-        generation_input_data, greedy=greedy
-    )
+        # Add stop_strings to generation_input_data if present in the batch
+        if "stop_strings" in batch:
+            generation_input_data["stop_strings"] = batch["stop_strings"]
+        else:
+            # Ensure the key exists even if it's None, matching GenerationDatumSpec
+            generation_input_data["stop_strings"] = [None] * len(input_lengths)
 
-    # Extract everything we need from the generation outputs
-    output_ids = generation_outputs["output_ids"]
-    generation_lengths = generation_outputs["generation_lengths"]
-    unpadded_sequence_lengths = generation_outputs["unpadded_sequence_lengths"]
+        print("input_ids", generation_input_data["input_ids"][0])
+        print("input_lengths", generation_input_data["input_lengths"][0])
 
-    # Extract generated parts
-    generated_ids = []
-    for i in range(len(input_lengths)):
-        input_len = input_lengths[i].item()
-        total_length = unpadded_sequence_lengths[i].item()
-        full_output = output_ids[i]
-        generated_part = full_output[input_len:total_length]
-        generated_ids.append(generated_part)
+        # Always use synchronous generation
+        generation_outputs = policy_generation.generate(
+            generation_input_data, greedy=greedy
+        )
 
-    generated_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+        # Extract everything we need from the generation outputs
+        output_ids = generation_outputs["output_ids"]
+        generation_lengths = generation_outputs["generation_lengths"]
+        unpadded_sequence_lengths = generation_outputs["unpadded_sequence_lengths"]
+
+        # Extract generated parts
+        generated_ids = []
+        for i in range(len(input_lengths)):
+            input_len = input_lengths[i].item()
+            total_length = unpadded_sequence_lengths[i].item()
+            full_output = output_ids[i]
+            generated_part = full_output[input_len:total_length]
+            generated_ids.append(generated_part)
+
+        generated_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+        print(generated_texts[0][:1000])
 
     # Append to message log
     for i, (text, input_length, total_length) in enumerate(

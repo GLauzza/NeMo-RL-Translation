@@ -17,6 +17,7 @@ from nemo_rl.data.datasets.response_datasets.clevr import CLEVRCoGenTDataset
 from nemo_rl.data.datasets.response_datasets.dapo_math import DAPOMath17KDataset
 from nemo_rl.data.datasets.response_datasets.deepscaler import DeepScalerDataset
 from nemo_rl.data.datasets.response_datasets.geometry3k import Geometry3KDataset
+from nemo_rl.data.datasets.response_datasets.nemotron_math_v2 import Nemotron_math_v2_Dataset
 from nemo_rl.data.datasets.response_datasets.oai_format_dataset import (
     OpenAIFormatDataset,
 )
@@ -66,6 +67,9 @@ def load_response_dataset(data_config, seed: int = 42):
             data_config["use_preserving_dataset"],
         )
     # for rl training
+    elif dataset_name == "Nemotron-Math-v2":
+        print("Loading nvidia/Nemotron_math_v2_Dataset for training and validation")
+        base_dataset: Any = Nemotron_math_v2_Dataset(seed=seed)
     elif dataset_name == "OpenMathInstruct-2":
         print("Loading nvidia/OpenMathInstruct2Dataset for training and validation")
         base_dataset: Any = OpenMathInstruct2Dataset(seed=seed)
@@ -131,6 +135,7 @@ __all__ = [
     "OpenAIFormatDataset",
     "OasstDataset",
     "OpenMathInstruct2Dataset",
+    "Nemotron_math_v2_Dataset"
     "RefCOCODataset",
     "ResponseDataset",
     "SquadDataset",

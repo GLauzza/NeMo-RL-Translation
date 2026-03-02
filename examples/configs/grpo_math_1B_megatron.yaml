@@ -156,7 +156,8 @@ data:
   max_input_seq_length: ${policy.max_total_sequence_length} # upper bound, real truncation occurs at vllm.max_model_len
   prompt_file: "examples/prompts/cot.txt"
   system_prompt_file: null
-  dataset_name: "OpenMathInstruct-2"
+  dataset_name: "Nemotron-Math-v2"
+  # dataset_name: "OpenMathInstruct-2"
   shuffle: true
 
 env:
