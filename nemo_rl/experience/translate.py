@@ -1,15 +1,16 @@
 import re
 
+import torch
 from tqdm import tqdm
 from datasets import Dataset
 from torch.utils.data import DataLoader
 
 from nemo_rl.distributed.batched_data_dict import BatchedDataDict
-from nemo_rl.models.generation.interfaces import GenerationDatumSpec
+from nemo_rl.models.generation.interfaces import GenerationDatumSpec, GenerationOutputSpec
 
 
 def chunk(text, tokenizer, chunk_size):
-    print("input text:", text)
+    # print("input text:", text)
     splitted = re.split(r"((?:(?<![\.:])[\.\?\!\n][\s+\n]\n*)(?!\s*-))", text)
     sentences = (
         [chunk + sep for chunk, sep in zip(splitted[0::2], splitted[1::2])] +
@@ -34,7 +35,7 @@ def chunk(text, tokenizer, chunk_size):
         chunks_seps.append(chunk[len(stripped_chunk):])
         chunks[i] = stripped_chunk
     
-    print("output chunks", chunks)
+    # print("output chunks", chunks)
     return chunks, chunks_seps
 
  
@@ -102,12 +103,12 @@ def prepare_sorted_inference_data(dataset, tokenizer, batch_size=-1, input_name=
     if answer_start is None:
         dataset = dataset.add_column(
             "chat_input",
-            [tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True) for messages in conversations]
+            [tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=False) for messages in conversations]
         )
     else:
         dataset = dataset.add_column(
             "chat_input",
-            [tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True) + answer for messages, answer in zip(conversations, answer_start)]
+            [tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=False) + answer for messages, answer in zip(conversations, answer_start)]
         )
     dataset = dataset.add_column(
         "length",
@@ -129,20 +130,21 @@ def prepare_sorted_inference_data(dataset, tokenizer, batch_size=-1, input_name=
     return dataset, dataloader, sources
 
 
-def chat_input_to_generation_input_data(texts):
+def chat_input_to_generation_input_data(texts, tokenizer):
     tokenized_texts = tokenizer(texts, padding=True, return_tensors="pt", return_length=True)
     generation_input_data = BatchedDataDict[GenerationDatumSpec]({"input_ids": tokenized_texts["input_ids"], "input_lengths": tokenized_texts["length"]})        
     return generation_input_data
 
 
-def generation_outputs_to_generated_texts(generation_outputs):
+def generation_outputs_to_generated_texts(generation_outputs, tokenizer):
     # Extract everything we need from the generation outputs
     output_ids = generation_outputs["output_ids"]
     generation_lengths = generation_outputs["generation_lengths"]
     unpadded_sequence_lengths = generation_outputs["unpadded_sequence_lengths"]
+    input_lengths = [unpadded_sequence_length - generation_length for generation_length, unpadded_sequence_length in zip(generation_lengths, unpadded_sequence_lengths)]
 
     generated_ids = []
-    for i in range(len(input_lengths)):
+    for i in range(len(generation_lengths)):
         input_len = input_lengths[i].item()
         total_length = unpadded_sequence_lengths[i].item()
         full_output = output_ids[i]
@@ -153,25 +155,29 @@ def generation_outputs_to_generated_texts(generation_outputs):
     return generated_texts
 
 
-def infer_chunked(policy_generation, raw_dataset, chunked_dataset, dataloader, output_name, sampling_params, batch_size, input_name, chunk_size):
+def infer_chunked(policy_generation, tokenizer, greedy, raw_dataset, chunked_dataset, dataloader, output_name, batch_size, input_name, chunk_size):
 
     max_chunks = max(chunked_dataset["chunk_id"])
     n_sample = max(chunked_dataset["sample_id"]) + 1
     inputs = [""] * n_sample
     outputs = [[]] * n_sample
+    logprobs = [[]] * n_sample
     for i in tqdm(range(max_chunks)):
         print(f"FM - Infering chunk {i}/{max_chunks}")
         for data in tqdm(dataloader):
             # print(f"\n\n\nLens:{[len(sample) for sample in data['chat_input']]}\n\nInputs:\n{data['chat_input']}\n\n")
-            generation_outputs = policy_generation.generate(chat_input_to_generation_input_data(data["chat_input"]), greedy=greedy)
-            output = generation_outputs_to_generated_texts(generation_outputs)
+            generation_outputs = policy_generation.generate(chat_input_to_generation_input_data(data["chat_input"], tokenizer), greedy=greedy)
+            output = generation_outputs_to_generated_texts(generation_outputs, tokenizer)
             output_lens = generation_outputs["generation_lengths"]
-            for sample_id, inp, out, out_len, sep in zip(data["sample_id"], data[input_name], output, output_lens, data["sep"]):
+            # print(f'\ninput: {data["chat_input"][0]}\nlength: {output_lens[0]}\n output: {output[0]}')
+            for sample_id, inp, out, out_len, sep, logprob in zip(data["sample_id"], data[input_name], output, output_lens, data["sep"], generation_outputs["logprobs"]):
                 if out_len < 1.75*chunk_size and inputs[sample_id] != "<DISCARDED>":
                     if i == 0:
                         outputs[sample_id] = [out + sep]
+                        logprobs[sample_id] = [logprob]
                     else:
                         outputs[sample_id].append(out + sep)
+                        logprobs.append(logprob)
                     inputs[sample_id] = inp + sep
                 else:
                     if i == 0:
@@ -197,11 +203,11 @@ def infer_chunked(policy_generation, raw_dataset, chunked_dataset, dataloader, o
     print("FM - Infered")
 
     raw_dataset = raw_dataset.add_column(output_name, outputs)
-    return raw_dataset
+    return raw_dataset, logprobs
 
 
-def translate(generated_texts, tokenizer, batch_size=-1, chunk_size=512, input_name="solution", output_name="solution_fr"):
-    raw_dataset = Dataset.from_dict({input_name:text for text in generated_texts})
+def translate(generated_texts, policy_generation, tokenizer, greedy, generation_outputs, input_lengths, max_seq_len, batch_size=-1, chunk_size=512, input_name="solution", output_name="solution_fr"):
+    raw_dataset = Dataset.from_dict({input_name:[text for text in generated_texts]})
 
     dataset, dataloader, _ = prepare_inference_data(
         raw_dataset,
@@ -213,6 +219,50 @@ def translate(generated_texts, tokenizer, batch_size=-1, chunk_size=512, input_n
         chunk_size=chunk_size,
     )
 
-    dataset = infer_chunked(policy_generation, raw_dataset, dataset, dataloader, output_name, sampling_params, batch_size, input_name, chunk_size)
+    # dataset = Dataset.from_dict({input_name:[text for text in generated_texts], output_name:[text for text in generated_texts]})
+    dataset, logprobs = infer_chunked(policy_generation, tokenizer, greedy, raw_dataset, dataset, dataloader, output_name, batch_size, input_name, chunk_size)
 
-    raise Exception("test")
+    new_generation_lengths = []
+    new_unpadded_sequence_lengths = []
+    for sample, input_length in zip(dataset, input_lengths):
+        generation_length = tokenizer(sample[output_name], return_length=True)["length"][0]
+        new_generation_lengths.append(min(generation_length, max_seq_len-input_length))
+        new_unpadded_sequence_lengths.append(min(input_length + new_generation_lengths[-1], max_seq_len))
+    max_len = max(new_unpadded_sequence_lengths + [len(generation_outputs["output_ids"][0])])
+    
+    new_output_ids = []
+    for sample, output_ids, input_length in zip(dataset, generation_outputs["output_ids"], input_lengths):
+        ids = (output_ids[:input_length].tolist() + tokenizer(sample[output_name])["input_ids"])[:max_seq_len]
+        new_output_ids.append(ids + [0]*(max_len-len(ids)))
+
+    # Not the right logprobs, should have to recompute because prompt is different
+    # new_logprobs = []
+    # for logprob, input_length in zip(logprobs, input_lengths):
+    #     filtered_logprob = [0]*input_length + [l[0] for l in logprob if l[0] !=0]
+    #     new_logprobs.append(filtered_logprob + [0]*(max_len-len(filtered_logprob)))
+
+    generation_outputs_translation = BatchedDataDict[GenerationOutputSpec]({
+        "output_ids": torch.tensor(new_output_ids),
+        "generation_lengths": torch.tensor(new_generation_lengths),
+        "unpadded_sequence_lengths": torch.tensor(new_unpadded_sequence_lengths),
+        # "logprobs": torch.tensor(new_logprobs),
+        "truncated": None,
+    })
+
+    correct_length_output_ids = []
+    # correct_length_logprobs = []
+    for output_ids, logprob in zip(generation_outputs["output_ids"], generation_outputs["logprobs"]):
+        correct_length_output_ids.append(output_ids.tolist() + [0]*(max_len-len(output_ids)))
+        print(max_len, max_seq_len, len(correct_length_output_ids[-1]), len(output_ids))
+        # correct_length_logprobs.append(logprob.tolist() + [0]*(max_len-len(logprob)))
+
+    generation_outputs["output_ids"] = torch.tensor(correct_length_output_ids)
+    # generation_outputs["logprobs"] = torch.tensor(correct_length_logprobs)
+
+    print(new_output_ids[0])
+    print(new_generation_lengths[0])
+    print(new_unpadded_sequence_lengths[0])
+    # print(new_logprobs[0])
+    print(tokenizer.batch_decode(torch.tensor(new_output_ids[0])))
+
+    return generation_outputs_translation, generation_outputs

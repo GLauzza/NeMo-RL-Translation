@@ -62,40 +62,39 @@ def generate_responses(
     batch: BatchedDataDict[DatumSpec],
     tokenizer: TokenizerType,
     input_lengths: torch.Tensor,
+    max_seq_len: int,
     include_logprobs: bool = True,
     greedy: bool = False,
 ) -> tuple[BatchedDataDict[DatumSpec], list[torch.Tensor], dict[str, float | int]]:
     """Generate responses from policy using synchronous generation."""
     for do_translate in range(2):
         if do_translate:
-            translate(generated_texts, tokenizer)
-            # conversations = [
-            #     [
-            #         {"role": "user", "content": f"Translate the following text in french:\n{text}"},
-            #     ]
-            #     for text in generated_texts
-            # ]
-            # formatted_texts = [
-            #     tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-            #     for messages in conversations
-            # ]
-            # tokenized_texts = tokenizer(formatted_texts, padding=True, return_tensors="pt", return_length=True)
-            # generation_input_data = BatchedDataDict[GenerationDatumSpec]({"input_ids": tokenized_texts["input_ids"], "input_lengths": tokenized_texts["length"]})        
+            generation_outputs_translation, generation_outputs = translate(generated_texts, policy_generation, tokenizer, greedy, generation_outputs, input_lengths, max_seq_len)
 
-        # Add stop_strings to generation_input_data if present in the batch
-        if "stop_strings" in batch:
-            generation_input_data["stop_strings"] = batch["stop_strings"]
+            generation_outputs = BatchedDataDict[GenerationOutputSpec]({
+                "output_ids": torch.stack([generation_outputs["output_ids"], generation_outputs_translation["output_ids"]], dim=1).reshape(-1, generation_outputs["output_ids"].shape[1]),
+                "generation_lengths": torch.stack([generation_outputs["generation_lengths"], generation_outputs_translation["generation_lengths"]], dim=1).reshape(-1),
+                "unpadded_sequence_lengths": torch.stack([generation_outputs["unpadded_sequence_lengths"], generation_outputs_translation["unpadded_sequence_lengths"]], dim=1).reshape(-1),
+                # "logprobs": torch.stack([generation_outputs["logprobs"], generation_outputs_translation["logprobs"]], dim=1).reshape(-1, generation_outputs["logprobs"].shape[1]),
+                "truncated": None,
+            })
         else:
-            # Ensure the key exists even if it's None, matching GenerationDatumSpec
-            generation_input_data["stop_strings"] = [None] * len(input_lengths)
+            # Add stop_strings to generation_input_data if present in the batch
+            if "stop_strings" in batch:
+                generation_input_data["stop_strings"] = batch["stop_strings"]
+            else:
+                # Ensure the key exists even if it's None, matching GenerationDatumSpec
+                generation_input_data["stop_strings"] = [None] * len(input_lengths)
 
-        print("input_ids", generation_input_data["input_ids"][0])
-        print("input_lengths", generation_input_data["input_lengths"][0])
-
-        # Always use synchronous generation
-        generation_outputs = policy_generation.generate(
-            generation_input_data, greedy=greedy
-        )
+            half_generation_input_data = BatchedDataDict[GenerationDatumSpec]({
+                "input_ids": generation_input_data["input_ids"][::2], 
+                "input_lengths": generation_input_data["input_lengths"][::2], 
+                "stop_strings": [stop_string for i, stop_string in enumerate(generation_input_data["stop_strings"]) if (i%2) == 1], 
+            })
+            # Always use synchronous generation
+            generation_outputs = policy_generation.generate(
+                half_generation_input_data, greedy=greedy
+            )
 
         # Extract everything we need from the generation outputs
         output_ids = generation_outputs["output_ids"]
@@ -104,15 +103,15 @@ def generate_responses(
 
         # Extract generated parts
         generated_ids = []
-        for i in range(len(input_lengths)):
-            input_len = input_lengths[i].item()
+        for i in range(len(generation_lengths)):
+            input_len = unpadded_sequence_lengths[i].item() - generation_lengths[i].item()
             total_length = unpadded_sequence_lengths[i].item()
             full_output = output_ids[i]
             generated_part = full_output[input_len:total_length]
             generated_ids.append(generated_part)
 
         generated_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
-        print(generated_texts[0][:1000])
+        # print(generated_texts[0][:100])
 
     # Append to message log
     for i, (text, input_length, total_length) in enumerate(
@@ -445,6 +444,7 @@ def run_multi_turn_rollout(
             generation_input_data,
             active_batch,
             tokenizer,
+            max_seq_len=max_seq_len,
             input_lengths=active_input_lengths,
             greedy=greedy,
         )

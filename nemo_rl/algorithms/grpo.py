@@ -1002,6 +1002,9 @@ def grpo_train(
     processor: Optional[AutoProcessor] = None,
 ) -> None:
     """Run GRPO training algorithm."""
+    if master_config["grpo"]["num_generations_per_prompt"]%2 == 1:
+        raise Exception("num_generations_per_prompt must be even")
+        
     timer = Timer()
     timeout = TimeoutChecker(
         timeout=master_config["checkpointing"]["checkpoint_must_save_by"],
@@ -1773,6 +1776,9 @@ def validate(
         )
         print("  ⚠️ No validation dataloader provided, skipping validation", flush=True)
         return {}, {}
+
+    if master_config["grpo"]["num_generations_per_prompt"]%2 == 1:
+        raise Exception("num_generations_per_prompt must be even")
 
     timer = Timer()
     with timer.time("total_validation_time"):

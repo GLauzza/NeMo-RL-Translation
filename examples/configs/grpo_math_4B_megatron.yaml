@@ -3,7 +3,7 @@ defaults: "grpo_math_1B_megatron.yaml"
 
 grpo:
   num_prompts_per_step: 4
-  num_generations_per_prompt: 32
+  num_generations_per_prompt: 8
   overlong_filtering: true
   # async_grpo:
   #   enabled: true
@@ -18,14 +18,15 @@ checkpointing:
   checkpoint_must_save_by: null
 
 policy:
-  model_name: "/lustre/fsn1/projects/rech/knb/ukq43aj/Models/Qwen3-4B-Thinking-2507"
+  model_name: "/lustre/fsmisc/dataset/HuggingFace_Models/Qwen/Qwen3-4B"
+  # model_name: "/lustre/fsn1/projects/rech/knb/ukq43aj/Models/Qwen3-4B-Thinking-2507"
   tokenizer:
     name: ${policy.model_name} ## specify if you'd like to use a tokenizer different from the model's default
-  train_global_batch_size: 32
+  train_global_batch_size: 1
   train_micro_batch_size: 1
   generation_batch_size: 1 # Only used when generating using HF backend
   logprob_batch_size: 1
-  max_total_sequence_length: 1024
+  max_total_sequence_length: 8192
   precision: "bfloat16"
 
   dtensor_cfg:

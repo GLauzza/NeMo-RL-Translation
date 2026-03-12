@@ -76,6 +76,7 @@ class HFVerifyWorker:
         self,
         pred_responses: list[str],
         ground_truths: list[str],
+        translation_statuses: list[bool],
         return_extracted_answer: bool = False,
         **kwargs,
     ) -> Union[list[float], tuple[list[float], list[str | None]]]:
@@ -93,7 +94,7 @@ class HFVerifyWorker:
         results = []
         extracted_answers: list[str | None] = []
 
-        for response, ground_truth in zip(pred_responses, ground_truths):
+        for response, ground_truth, is_translated in zip(pred_responses, ground_truths, translation_statuses):
             try:
                 with _mute_output():
                     math_verify_impl = kwargs.get("math_verify_impl", "hf_math_verify")
@@ -107,6 +108,7 @@ class HFVerifyWorker:
                         ret_score, extracted_answer = self.verify_func(
                             [ground_truth_parsable], [response]
                         )
+                        ret_score *= is_translated
                     else:
                         raise ValueError(
                             f"Unknown math_verify_impl: {math_verify_impl}. Expected 'hf_math_verify' or 'dapo_math_verify'."
@@ -300,17 +302,19 @@ class MathEnvironment(EnvironmentInterface[MathEnvironmentMetadata]):
             assistant_response_batch, self.num_workers
         )
         chunked_ground_truths = chunk_list_to_workers(ground_truths, self.num_workers)
+        chunked_translation_statuses = chunk_list_to_workers([(i%2) == 1 for i in range(len(ground_truths))], self.num_workers)
 
         # Process each chunk in parallel
         futures = [
             self.workers[i].verify.remote(
                 chunk,
                 ground_truth_chunk,
+                translation_statuses_chunk,
                 return_extracted_answer,
                 math_verify_impl=self.cfg.get("math_verify_impl", "hf_math_verify"),
             )
-            for i, (chunk, ground_truth_chunk) in enumerate(
-                zip(chunked_assistant_response_batch, chunked_ground_truths)
+            for i, (chunk, ground_truth_chunk, translation_statuses_chunk) in enumerate(
+                zip(chunked_assistant_response_batch, chunked_ground_truths, chunked_translation_statuses)
             )
         ]
 
