@@ -2,7 +2,7 @@
 defaults: "grpo_math_1B_megatron.yaml"
 
 grpo:
-  num_prompts_per_step: 4
+  num_prompts_per_step: 16
   num_generations_per_prompt: 8
   overlong_filtering: true
   # async_grpo:
@@ -22,12 +22,14 @@ policy:
   # model_name: "/lustre/fsn1/projects/rech/knb/ukq43aj/Models/Qwen3-4B-Thinking-2507"
   tokenizer:
     name: ${policy.model_name} ## specify if you'd like to use a tokenizer different from the model's default
-  train_global_batch_size: 1
+  train_global_batch_size: 32
   train_micro_batch_size: 1
   generation_batch_size: 1 # Only used when generating using HF backend
   logprob_batch_size: 1
-  max_total_sequence_length: 8192
+  max_total_sequence_length: 32768
   precision: "bfloat16"
+  sequence_parallel: True
+  activation_checkpointing_enabled: True
 
   dtensor_cfg:
     enabled: false
@@ -43,7 +45,7 @@ policy:
     tensor_model_parallel_size: 1
     # On H100, can run with pp=1 for better performance with expandable segments (which is enabled by default)
     pipeline_model_parallel_size: 1
-    context_parallel_size: 1
+    context_parallel_size: 8
     pipeline_dtype: ${policy.precision}
 
     optimizer:
@@ -54,6 +56,9 @@ policy:
       bf16: true
       fp16: false
       params_dtype: "float32"
+      # use_precision_aware_optimizer: false
+      # optimizer_cpu_offload: true
+      # optimizer_offload_fraction: true
 
     scheduler:
       start_weight_decay: ${policy.megatron_cfg.optimizer.weight_decay}
@@ -63,6 +68,26 @@ policy:
       lr_decay_iters: 1000
       lr_warmup_iters: 13
       lr_warmup_init: 3.0e-8
+
+    # fp8_cfg:
+    #   enabled: true
+    #   fp8: "e4m3"
+    #   fp8_recipe: "blockwise"
+    #   fp8_param: false
+    # env_vars:
+    #   NVTE_FP8_BLOCK_SCALING_FP32_SCALES: "1"
+    # peft:
+    #   enabled: True
+    #   target_modules: []
+    #   exclude_modules: []
+    #   dim: 16
+    #   alpha: 32
+    #   dropout: 0.0
+    #   dropout_position: "post"
+    #   lora_A_init_method: "xavier"
+    #   lora_B_init_method: "xavier"
+    #   # lora_dtype: "fp8"
+
 
   generation:
     backend: "vllm"
@@ -74,10 +99,13 @@ policy:
     stop_strings: null
     vllm_cfg:
       # async_engine: true
-      tensor_parallel_size: 1
+      tensor_parallel_size: 4
       pipeline_parallel_size: 1
-      gpu_memory_utilization: 0.9
+      gpu_memory_utilization: 0.8
       max_model_len: ${policy.max_total_sequence_length}
+      # enforce_eager: true
+      # precision: "fp8"
+      # use_deep_gemm: true
     # colocated:
     #   enabled: false
     #   resources:
@@ -89,5 +117,5 @@ policy:
 #   use_importance_sampling_correction: true
 
 cluster:
-  gpus_per_node: 1
+  gpus_per_node: 8
   num_nodes: 1

@@ -67,7 +67,7 @@ def generate_responses(
     greedy: bool = False,
 ) -> tuple[BatchedDataDict[DatumSpec], list[torch.Tensor], dict[str, float | int]]:
     """Generate responses from policy using synchronous generation."""
-    for do_translate in range(2):
+    for do_translate in range(1):
         if do_translate:
             generation_outputs_translation, generation_outputs = translate(generated_texts, policy_generation, tokenizer, greedy, generation_outputs, input_lengths, max_seq_len)
 
@@ -86,20 +86,21 @@ def generate_responses(
                 # Ensure the key exists even if it's None, matching GenerationDatumSpec
                 generation_input_data["stop_strings"] = [None] * len(input_lengths)
 
-            half_generation_input_data = BatchedDataDict[GenerationDatumSpec]({
-                "input_ids": generation_input_data["input_ids"][::2], 
-                "input_lengths": generation_input_data["input_lengths"][::2], 
-                "stop_strings": [stop_string for i, stop_string in enumerate(generation_input_data["stop_strings"]) if (i%2) == 1], 
-            })
+            # generation_input_data = BatchedDataDict[GenerationDatumSpec]({
+            #     "input_ids": generation_input_data["input_ids"][::2], 
+            #     "input_lengths": generation_input_data["input_lengths"][::2], 
+            #     "stop_strings": [stop_string for i, stop_string in enumerate(generation_input_data["stop_strings"]) if (i%2) == 1], 
+            # })
             # Always use synchronous generation
             generation_outputs = policy_generation.generate(
-                half_generation_input_data, greedy=greedy
+                generation_input_data, greedy=greedy
             )
 
         # Extract everything we need from the generation outputs
         output_ids = generation_outputs["output_ids"]
         generation_lengths = generation_outputs["generation_lengths"]
         unpadded_sequence_lengths = generation_outputs["unpadded_sequence_lengths"]
+        print("Lengths:", unpadded_sequence_lengths)
 
         # Extract generated parts
         generated_ids = []

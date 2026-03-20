@@ -499,7 +499,7 @@ class VllmGenerationWorker(BaseVllmGenerationWorker):
 
     @wrap_with_nvtx_name("vllm_genertion_worker/generate")
     def generate(
-        self, data: BatchedDataDict[GenerationDatumSpec], greedy: bool = False
+        self, data: BatchedDataDict[GenerationDatumSpec], greedy: bool = False, max_new_tokens: Optional[int] = None,
     ) -> BatchedDataDict[GenerationOutputSpec]:
         """Generate a batch of data using vLLM generation.
 
@@ -533,6 +533,7 @@ class VllmGenerationWorker(BaseVllmGenerationWorker):
         sampling_params = self._build_sampling_params(
             greedy=greedy,
             stop_strings=stop_strings,
+            max_new_tokens=max_new_tokens,
         )
 
         # verify inputs have correct padding

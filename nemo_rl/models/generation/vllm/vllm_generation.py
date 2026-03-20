@@ -421,7 +421,7 @@ class VllmGeneration(GenerationInterface):
         return futures
 
     def generate(
-        self, data: BatchedDataDict[GenerationDatumSpec], greedy: bool = False
+        self, data: BatchedDataDict[GenerationDatumSpec], greedy: bool = False, max_new_tokens: Optional[int] = None,
     ) -> BatchedDataDict[GenerationOutputSpec]:
         """Generate a batch of data using vLLM."""
         assert isinstance(data, BatchedDataDict), (
@@ -442,7 +442,7 @@ class VllmGeneration(GenerationInterface):
             in_sharded_axes=["data_parallel"],
             replicate_on_axes=None,  # just run on tp rank 0
             output_is_replicated=None,
-            common_kwargs={"greedy": greedy},
+            common_kwargs={"greedy": greedy, "max_new_tokens": max_new_tokens},
         )
 
         # Get results from the workers, respecting tied worker groups (only one result per tied worker group)

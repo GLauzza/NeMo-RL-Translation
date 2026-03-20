@@ -155,7 +155,7 @@ def generation_outputs_to_generated_texts(generation_outputs, tokenizer):
     return generated_texts
 
 
-def infer_chunked(policy_generation, tokenizer, greedy, raw_dataset, chunked_dataset, dataloader, output_name, batch_size, input_name, chunk_size):
+def infer_chunked(policy_generation, tokenizer, greedy, raw_dataset, chunked_dataset, dataloader, output_name, batch_size, input_name, chunk_size, discard_ratio):
 
     max_chunks = max(chunked_dataset["chunk_id"])
     n_sample = max(chunked_dataset["sample_id"]) + 1
@@ -166,12 +166,12 @@ def infer_chunked(policy_generation, tokenizer, greedy, raw_dataset, chunked_dat
         print(f"FM - Infering chunk {i}/{max_chunks}")
         for data in tqdm(dataloader):
             # print(f"\n\n\nLens:{[len(sample) for sample in data['chat_input']]}\n\nInputs:\n{data['chat_input']}\n\n")
-            generation_outputs = policy_generation.generate(chat_input_to_generation_input_data(data["chat_input"], tokenizer), greedy=greedy)
+            generation_outputs = policy_generation.generate(chat_input_to_generation_input_data(data["chat_input"], tokenizer), greedy=greedy, max_new_tokens=discard_ratio*chunk_size)
             output = generation_outputs_to_generated_texts(generation_outputs, tokenizer)
             output_lens = generation_outputs["generation_lengths"]
             # print(f'\ninput: {data["chat_input"][0]}\nlength: {output_lens[0]}\n output: {output[0]}')
             for sample_id, inp, out, out_len, sep, logprob in zip(data["sample_id"], data[input_name], output, output_lens, data["sep"], generation_outputs["logprobs"]):
-                if out_len < 1.75*chunk_size and inputs[sample_id] != "<DISCARDED>":
+                if out_len == discard_ratio*chunk_size and inputs[sample_id] != "<DISCARDED>":
                     if i == 0:
                         outputs[sample_id] = [out + sep]
                         logprobs[sample_id] = [logprob]
@@ -206,7 +206,7 @@ def infer_chunked(policy_generation, tokenizer, greedy, raw_dataset, chunked_dat
     return raw_dataset, logprobs
 
 
-def translate(generated_texts, policy_generation, tokenizer, greedy, generation_outputs, input_lengths, max_seq_len, batch_size=-1, chunk_size=512, input_name="solution", output_name="solution_fr"):
+def translate(generated_texts, policy_generation, tokenizer, greedy, generation_outputs, input_lengths, max_seq_len, batch_size=-1, chunk_size=512, discard_ratio=1.75, input_name="solution", output_name="solution_fr"):
     raw_dataset = Dataset.from_dict({input_name:[text for text in generated_texts]})
 
     dataset, dataloader, _ = prepare_inference_data(
@@ -220,7 +220,7 @@ def translate(generated_texts, policy_generation, tokenizer, greedy, generation_
     )
 
     # dataset = Dataset.from_dict({input_name:[text for text in generated_texts], output_name:[text for text in generated_texts]})
-    dataset, logprobs = infer_chunked(policy_generation, tokenizer, greedy, raw_dataset, dataset, dataloader, output_name, batch_size, input_name, chunk_size)
+    dataset, logprobs = infer_chunked(policy_generation, tokenizer, greedy, raw_dataset, dataset, dataloader, output_name, batch_size, input_name, chunk_size, discard_ratio)
 
     new_generation_lengths = []
     new_unpadded_sequence_lengths = []
@@ -253,16 +253,18 @@ def translate(generated_texts, policy_generation, tokenizer, greedy, generation_
     # correct_length_logprobs = []
     for output_ids, logprob in zip(generation_outputs["output_ids"], generation_outputs["logprobs"]):
         correct_length_output_ids.append(output_ids.tolist() + [0]*(max_len-len(output_ids)))
-        print(max_len, max_seq_len, len(correct_length_output_ids[-1]), len(output_ids))
         # correct_length_logprobs.append(logprob.tolist() + [0]*(max_len-len(logprob)))
 
     generation_outputs["output_ids"] = torch.tensor(correct_length_output_ids)
     # generation_outputs["logprobs"] = torch.tensor(correct_length_logprobs)
 
-    print(new_output_ids[0])
-    print(new_generation_lengths[0])
-    print(new_unpadded_sequence_lengths[0])
-    # print(new_logprobs[0])
-    print(tokenizer.batch_decode(torch.tensor(new_output_ids[0])))
+    # print(new_output_ids[0])
+    # print(new_generation_lengths[0])
+    # print(new_unpadded_sequence_lengths[0])
+    # # print(new_logprobs[0])
+    # print(tokenizer.batch_decode(torch.tensor(new_output_ids[0])))
+    print(input_lengths)
+    print(new_generation_lengths)
+    print(new_unpadded_sequence_lengths)
 
     return generation_outputs_translation, generation_outputs
