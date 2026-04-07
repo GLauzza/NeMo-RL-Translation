@@ -25,7 +25,7 @@ def format_math(
 
 
 def prepare_nemotron_math_v2_dataset(
-    split: str = "high_part00",
+    split: str = "low",
     seed: int = 42,
     test_size: float = 0.05,
     output_key: str = "expected_answer",
@@ -63,7 +63,7 @@ def prepare_nemotron_math_v2_dataset(
 class Nemotron_math_v2_Dataset:
     def __init__(
         self,
-        split: str = "high_part00",
+        split: str = "low",
         seed: int = 42,
         test_size: float = 0.05,
         output_key: str = "expected_answer",

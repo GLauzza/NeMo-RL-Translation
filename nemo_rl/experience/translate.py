@@ -1,12 +1,38 @@
 import re
+import os
+import time
 
 import torch
 from tqdm import tqdm
 from datasets import Dataset
 from torch.utils.data import DataLoader
+from transformers import AutoTokenizer
+
+from vllm import LLM, SamplingParams
+
+import gc
+import torch
+# from vllm.model_executor.parallel_utils.parallel_state import destroy_model_parallel
 
 from nemo_rl.distributed.batched_data_dict import BatchedDataDict
 from nemo_rl.models.generation.interfaces import GenerationDatumSpec, GenerationOutputSpec
+
+
+TRANSLATE_PROMPT = (
+    # "Please translate sentence by sentence the full following text in French.\n"
+    # "- Only output the translation.\n"
+    # # "- Only translate what is after <|Text|>.\n"
+    # # "- Don't summarize.\n"
+    # "- Don't solve the problem, only translate.\n"
+    # "- Preserve any mathematical formula formatting.\n"
+    # # "- Don't translate what is inside \\boxed{}.\n"
+    # # "<|Text|>\n"
+    """You are a professional translator. Translate the following text into French. Preserve all mathematical expressions, symbols, and formatting exactly as they appear in the original text. Do not modify any numbers, equations, or formulas. Translate all mathematical commands into first-person plural.
+
+Text:
+{text}
+"""
+)
 
 
 def chunk(text, tokenizer, chunk_size):
@@ -84,20 +110,12 @@ def prepare_sorted_inference_data(dataset, tokenizer, batch_size=-1, input_name=
     if sortby is None:
         sortby = input_name
     conversations = [
-        [{
-            "role": "user", 
-            "content": (
-                "Please translate sentence by sentence the full following text in French.\n"
-                "- Only output the translation.\n"
-                "- Only translate what is after <|Text|>.\n"
-                # "- Don't summarize.\n"
-                "- Don't solve the problem, only translate.\n"
-                "- Preserve any mathematical formula formatting.\n"
-                "- Don't translate what is inside \\boxed{}.\n"
-                "<|Text|>\n"
-                f"{input_field}"
-            )
-        }]
+        [
+            # {"role": "system", "content": TRANSLATE_PROMPT},
+            # {"role": "user", "content": TRANSLATE_PROMPT + input_field},
+            {"role": "user", "content": TRANSLATE_PROMPT.format(text=input_field)},
+            
+        ]
         for input_field in dataset[input_name]
     ]
     if answer_start is None:
@@ -155,33 +173,51 @@ def generation_outputs_to_generated_texts(generation_outputs, tokenizer):
     return generated_texts
 
 
-def infer_chunked(policy_generation, tokenizer, greedy, raw_dataset, chunked_dataset, dataloader, output_name, batch_size, input_name, chunk_size, discard_ratio):
-
+def infer_chunked(policy_generation, tokenizer, model_id, greedy, raw_dataset, chunked_dataset, dataloader, output_name, batch_size, input_name, chunk_size, discard_ratio):
     max_chunks = max(chunked_dataset["chunk_id"])
     n_sample = max(chunked_dataset["sample_id"]) + 1
     inputs = [""] * n_sample
     outputs = [[]] * n_sample
-    logprobs = [[]] * n_sample
+
+    start_time = time.time()
+    policy_generation = LLM(
+        model_id,
+        enable_prefix_caching=True,
+        gpu_memory_utilization=0.8,
+        tensor_parallel_size=4,
+    )
+    print(f"Translation model loading took {time.time() - start_time}s")
+
+    
     for i in tqdm(range(max_chunks)):
         print(f"FM - Infering chunk {i}/{max_chunks}")
         for data in tqdm(dataloader):
             # print(f"\n\n\nLens:{[len(sample) for sample in data['chat_input']]}\n\nInputs:\n{data['chat_input']}\n\n")
-            generation_outputs = policy_generation.generate(chat_input_to_generation_input_data(data["chat_input"], tokenizer), greedy=greedy, max_new_tokens=discard_ratio*chunk_size)
-            output = generation_outputs_to_generated_texts(generation_outputs, tokenizer)
-            output_lens = generation_outputs["generation_lengths"]
+            
+            request_outputs = policy_generation.generate(data["chat_input"], SamplingParams(n=1, temperature=0.7, top_p=0.95, max_tokens=int(discard_ratio*chunk_size)))
+            output = [request_output.outputs[0].text for request_output in request_outputs]
+            output_lens = [len(request_output.outputs[0].token_ids) for request_output in request_outputs]
+            print(i)
+
+            # generation_input_data = chat_input_to_generation_input_data(data["chat_input"], tokenizer)
+            # generation_outputs = policy_generation.generate(generation_input_data, greedy=greedy, max_new_tokens=discard_ratio*chunk_size)
+            # output = generation_outputs_to_generated_texts(generation_outputs, tokenizer)
+            # output_lens = generation_outputs["generation_lengths"]
+
             # print(f'\ninput: {data["chat_input"][0]}\nlength: {output_lens[0]}\n output: {output[0]}')
-            for sample_id, inp, out, out_len, sep, logprob in zip(data["sample_id"], data[input_name], output, output_lens, data["sep"], generation_outputs["logprobs"]):
-                if out_len == discard_ratio*chunk_size and inputs[sample_id] != "<DISCARDED>":
+            for sample_id, inp, out, out_len, sep, chat_input in zip(data["sample_id"], data[input_name], output, output_lens, data["sep"], data["chat_input"]):
+                inp_len = tokenizer(chunked_dataset.filter(lambda x : x["sample_id"] == sample_id and x["chunk_id"] == i)[input_name][0], padding=False, return_tensors="pt", return_length=True)["length"][0]
+                # print(f"\n\n\nGENERATION {i}/{max_chunks} of id {sample_id} of len {out_len} compared to {inp_len} -------------------------------------------------\n\nINPUT--------:\n\n{chat_input}\n\nOUTPUT--------:\n\n{out}")
+                if out_len < (discard_ratio*inp_len) and out_len > (discard_ratio/inp_len) and inputs[sample_id] != "<DISCARDED>":
                     if i == 0:
                         outputs[sample_id] = [out + sep]
-                        logprobs[sample_id] = [logprob]
                     else:
                         outputs[sample_id].append(out + sep)
-                        logprobs.append(logprob)
                     inputs[sample_id] = inp + sep
                 else:
+                    print("<<<<<<<<<<<<<<<<<<<<<<<<<<DISCARDED>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
                     if i == 0:
-                        outputs[sample_id] = "<DISCARDED>"
+                        outputs[sample_id] = ["<DISCARDED>"]
                     else:
                         outputs[sample_id].append("<DISCARDED>")
                     inputs[sample_id] = "<DISCARDED>"
@@ -200,17 +236,47 @@ def infer_chunked(policy_generation, tokenizer, greedy, raw_dataset, chunked_dat
             _, dataloader, _ = prepare_sorted_inference_data(chunk_n_data, tokenizer, batch_size=batch_size, input_name="concatenated_chunks", answer_start=answer_start)
         
     outputs = [" ".join(output) for output in outputs]
+    # [print(f"\n\n\n\n\n\nOUTPUUUUUUUUUUUUUUUUUUUUUUUUUUUT {i}----------" ,output) for i, output in enumerate(outputs)]
     print("FM - Infered")
 
+    # destroy_model_parallel()
+    # del policy_generation.llm_engine.driver_worker
+    os.system("nvidia-smi")
+    del policy_generation
+    gc.collect()
+    torch.cuda.empty_cache()
+    # torch.distributed.destroy_process_group()
+    os.system("nvidia-smi")
+
     raw_dataset = raw_dataset.add_column(output_name, outputs)
-    return raw_dataset, logprobs
+    return raw_dataset
 
 
-def translate(generated_texts, policy_generation, tokenizer, greedy, generation_outputs, input_lengths, max_seq_len, batch_size=-1, chunk_size=512, discard_ratio=1.75, input_name="solution", output_name="solution_fr"):
-    raw_dataset = Dataset.from_dict({input_name:[text for text in generated_texts]})
+def translate(generated_texts, policy_generation, tokenizer, greedy, generation_outputs, input_lengths, max_seq_len, batch_size=-1, chunk_size=256, discard_ratio=1.75, input_name="solution", output_name="solution_fr"):
+    os.system("nvidia-smi")
 
-    dataset, dataloader, _ = prepare_inference_data(
-        raw_dataset,
+    model_id = "/lustre/fsn1/projects/rech/knb/ukq43aj/Models/Qwen3-32B-FP8-dynamic"
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+    dataset = Dataset.from_dict({input_name:[text for text in generated_texts]})
+
+    dataset_dict = {"id":[], "type": [], input_name: []}
+
+    for i, sample in enumerate(dataset):
+        think_part = sample[input_name].split("<think>")[-1].split("</think>")[0].strip()
+        dataset_dict["id"].append(i)
+        dataset_dict["type"].append("think")
+        dataset_dict[input_name].append(think_part)
+        if sample[input_name].count("</think>") > 0:
+            answer_part = sample[input_name].split("</think>")[-1].strip()
+            dataset_dict["id"].append(i)
+            dataset_dict["type"].append("answer")
+            dataset_dict[input_name].append(answer_part)
+
+    dataset = Dataset.from_dict(dataset_dict)
+
+    chunked_dataset, dataloader, _ = prepare_inference_data(
+        dataset,
         tokenizer,
         batch_size=batch_size,
         input_name=input_name,
@@ -220,20 +286,45 @@ def translate(generated_texts, policy_generation, tokenizer, greedy, generation_
     )
 
     # dataset = Dataset.from_dict({input_name:[text for text in generated_texts], output_name:[text for text in generated_texts]})
-    dataset, logprobs = infer_chunked(policy_generation, tokenizer, greedy, raw_dataset, dataset, dataloader, output_name, batch_size, input_name, chunk_size, discard_ratio)
+    start_time = time.time()
+    dataset = infer_chunked(policy_generation, tokenizer, model_id, greedy, dataset, chunked_dataset, dataloader, output_name, batch_size, input_name, chunk_size, discard_ratio)
+    print(f"VLLM translation took {time.time() - start_time}s")
+    # for i, sample in enumerate(dataset):
+    #     print(f"SAMPLE: {i}", sample[output_name][:100])
+
+    merged_dataset_dict = {input_name: [], output_name: []}
+    for sample in dataset:
+        if sample["type"] == "think":
+            merged_dataset_dict[input_name].append("<think>\n\n"+sample[input_name])
+            merged_dataset_dict[output_name].append("<think>\n\n"+sample[output_name])
+        elif sample["type"] == "answer":
+            merged_dataset_dict[input_name][-1] += "</think>\n\n"+sample[input_name]
+            merged_dataset_dict[output_name][-1] += "</think>\n\n"+sample[output_name]
+
+    dataset = Dataset.from_dict(merged_dataset_dict)
 
     new_generation_lengths = []
     new_unpadded_sequence_lengths = []
-    for sample, input_length in zip(dataset, input_lengths):
-        generation_length = tokenizer(sample[output_name], return_length=True)["length"][0]
-        new_generation_lengths.append(min(generation_length, max_seq_len-input_length))
+    for i ,(sample, input_length) in enumerate(zip(dataset, input_lengths)):
+        if "<DISCARDED>" in sample[output_name]:
+            print(f"DISCARDED {i}---------------------------------------------------------------------------")
+            new_generation_lengths.append(max_seq_len-input_length)
+        else:
+            generation_length = tokenizer(sample[output_name], return_length=True)["length"][0]
+            new_generation_lengths.append(min(generation_length, max_seq_len-input_length))
         new_unpadded_sequence_lengths.append(min(input_length + new_generation_lengths[-1], max_seq_len))
     max_len = max(new_unpadded_sequence_lengths + [len(generation_outputs["output_ids"][0])])
     
     new_output_ids = []
     for sample, output_ids, input_length in zip(dataset, generation_outputs["output_ids"], input_lengths):
-        ids = (output_ids[:input_length].tolist() + tokenizer(sample[output_name])["input_ids"])[:max_seq_len]
-        new_output_ids.append(ids + [0]*(max_len-len(ids)))
+        if "<DISCARDED>" in sample[output_name]:
+            new_output_ids.append(output_ids[:input_length].tolist() + [tokenizer(" discarded")["input_ids"][0]]*(max_len-input_length))
+            print(f"Discarded is len {len(new_output_ids[-1])} {input_length}, {max_len}, {max_seq_len}")
+        else:
+            ids = (output_ids[:input_length].tolist() + tokenizer(sample[output_name])["input_ids"])[:max_seq_len]
+            new_output_ids.append(ids + [0]*(max_len-len(ids)))
+            print(f"Non discarded is len {len(new_output_ids[-1])} {len(ids)}, {max_len}, {max_seq_len}")
+
 
     # Not the right logprobs, should have to recompute because prompt is different
     # new_logprobs = []
@@ -263,8 +354,6 @@ def translate(generated_texts, policy_generation, tokenizer, greedy, generation_
     # print(new_unpadded_sequence_lengths[0])
     # # print(new_logprobs[0])
     # print(tokenizer.batch_decode(torch.tensor(new_output_ids[0])))
-    print(input_lengths)
-    print(new_generation_lengths)
-    print(new_unpadded_sequence_lengths)
+    # print(input_lengths, new_generation_lengths, new_unpadded_sequence_lengths)
 
     return generation_outputs_translation, generation_outputs

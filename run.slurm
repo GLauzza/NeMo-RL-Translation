@@ -4,8 +4,8 @@
 #SBATCH --error=/lustre/fsn1/projects/rech/knb/ukq43aj/logs/log_%j.out
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --gres=gpu:8
-#SBATCH --cpus-per-task=64
+#SBATCH --gres=gpu:4
+#SBATCH --cpus-per-task=32
 #SBATCH --hint=nomultithread
 #SBATCH --constraint=a100
 #SBATCH --account=knb@a100

@@ -15,8 +15,10 @@
 # Generate rollouts for arbitrary environments
 # Supports multi-turn rollouts and many simultaneous environments (E.g. you can train on math, code, multi-turn games and more at once)
 
+import os
 import asyncio
 import copy
+import time
 import json
 import statistics
 from collections import defaultdict
@@ -67,9 +69,10 @@ def generate_responses(
     greedy: bool = False,
 ) -> tuple[BatchedDataDict[DatumSpec], list[torch.Tensor], dict[str, float | int]]:
     """Generate responses from policy using synchronous generation."""
-    for do_translate in range(1):
+    for do_translate in range(2):
+        os.system("nvidia-smi")
         if do_translate:
-            generation_outputs_translation, generation_outputs = translate(generated_texts, policy_generation, tokenizer, greedy, generation_outputs, input_lengths, max_seq_len)
+            generation_outputs_translation, generation_outputs = translate(generated_texts, policy_generation, tokenizer, greedy, generation_outputs, generation_input_data["input_lengths"], max_seq_len)
 
             generation_outputs = BatchedDataDict[GenerationOutputSpec]({
                 "output_ids": torch.stack([generation_outputs["output_ids"], generation_outputs_translation["output_ids"]], dim=1).reshape(-1, generation_outputs["output_ids"].shape[1]),
@@ -86,21 +89,22 @@ def generate_responses(
                 # Ensure the key exists even if it's None, matching GenerationDatumSpec
                 generation_input_data["stop_strings"] = [None] * len(input_lengths)
 
-            # generation_input_data = BatchedDataDict[GenerationDatumSpec]({
-            #     "input_ids": generation_input_data["input_ids"][::2], 
-            #     "input_lengths": generation_input_data["input_lengths"][::2], 
-            #     "stop_strings": [stop_string for i, stop_string in enumerate(generation_input_data["stop_strings"]) if (i%2) == 1], 
-            # })
+            generation_input_data = BatchedDataDict[GenerationDatumSpec]({
+                "input_ids": generation_input_data["input_ids"][::2], 
+                "input_lengths": generation_input_data["input_lengths"][::2], 
+                "stop_strings": [stop_string for i, stop_string in enumerate(generation_input_data["stop_strings"]) if (i%2) == 1], 
+            })
             # Always use synchronous generation
+            start_time = time.time()
             generation_outputs = policy_generation.generate(
                 generation_input_data, greedy=greedy
             )
+            print(f"VLLM generation took {time.time() - start_time}s")
 
         # Extract everything we need from the generation outputs
         output_ids = generation_outputs["output_ids"]
         generation_lengths = generation_outputs["generation_lengths"]
         unpadded_sequence_lengths = generation_outputs["unpadded_sequence_lengths"]
-        print("Lengths:", unpadded_sequence_lengths)
 
         # Extract generated parts
         generated_ids = []
@@ -112,7 +116,11 @@ def generate_responses(
             generated_ids.append(generated_part)
 
         generated_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
-        # print(generated_texts[0][:100])
+        
+    print("Lengths:", unpadded_sequence_lengths)
+    for i in range(0, len(generated_texts), 2):
+        # if unpadded_sequence_lengths[i] < 32768 and unpadded_sequence_lengths[i+1] < 32768:
+        #     print(f"\n\n\nGENERATION {i}-------------------------------------------------\n\nORIGINAL--------:\n\n{generated_texts[i]}\n\nTRANSLATED--------:\n\n{generated_texts[i+1]}")
 
     # Append to message log
     for i, (text, input_length, total_length) in enumerate(
