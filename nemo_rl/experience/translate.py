@@ -16,6 +16,11 @@ import torch
 
 from nemo_rl.distributed.batched_data_dict import BatchedDataDict
 from nemo_rl.models.generation.interfaces import GenerationDatumSpec, GenerationOutputSpec
+from nemo_rl.models.generation.vllm import VllmGeneration
+from nemo_rl.distributed.virtual_cluster import RayVirtualCluster
+from nemo_rl.models.generation.vllm import VllmConfig
+
+
 
 
 TRANSLATE_PROMPT = (
@@ -183,9 +188,21 @@ def infer_chunked(policy_generation, tokenizer, model_id, greedy, raw_dataset, c
     policy_generation = LLM(
         model_id,
         enable_prefix_caching=True,
-        gpu_memory_utilization=0.8,
+        gpu_memory_utilization=0.75,
         tensor_parallel_size=4,
     )
+    # vllm_cfg = policy_generation.cfg
+    # vllm_cfg["vllm_cfg"]["gpu_memory_utilization"] = 0.75
+    # policy_generation = VllmGeneration(
+    #     RayVirtualCluster(
+    #         name="grpo_inference_cluster",
+    #         bundle_ct_per_node_list=[4] * 2,
+    #         use_gpus=True,
+    #         num_gpus_per_node=4,
+    #         max_colocated_worker_groups=1,
+    #     ),
+    #     vllm_cfg,
+    # )
     print(f"Translation model loading took {time.time() - start_time}s")
 
     
@@ -193,11 +210,11 @@ def infer_chunked(policy_generation, tokenizer, model_id, greedy, raw_dataset, c
         print(f"FM - Infering chunk {i}/{max_chunks}")
         for data in tqdm(dataloader):
             # print(f"\n\n\nLens:{[len(sample) for sample in data['chat_input']]}\n\nInputs:\n{data['chat_input']}\n\n")
+            print(i)
             
             request_outputs = policy_generation.generate(data["chat_input"], SamplingParams(n=1, temperature=0.7, top_p=0.95, max_tokens=int(discard_ratio*chunk_size)))
             output = [request_output.outputs[0].text for request_output in request_outputs]
             output_lens = [len(request_output.outputs[0].token_ids) for request_output in request_outputs]
-            print(i)
 
             # generation_input_data = chat_input_to_generation_input_data(data["chat_input"], tokenizer)
             # generation_outputs = policy_generation.generate(generation_input_data, greedy=greedy, max_new_tokens=discard_ratio*chunk_size)

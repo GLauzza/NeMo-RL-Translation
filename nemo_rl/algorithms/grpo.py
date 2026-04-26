@@ -1209,6 +1209,7 @@ def grpo_train(
                             greedy=False,
                         )
                     policy_generation.finish_generation()
+
                     # Collect vLLM logger metrics for performance reporting after each generation step
                     # inflight batch sizes and num pending samples are collected from each vLLM worker
                     if policy_generation is not None and hasattr(
@@ -1219,6 +1220,7 @@ def grpo_train(
                         )
                     else:
                         vllm_logger_metrics = {}
+                os.system("nvidia-smi")
 
                 repeated_batch = scale_rewards(
                     repeated_batch, master_config["grpo"]["reward_scaling"]
@@ -1336,11 +1338,15 @@ def grpo_train(
                     )
                     train_data.to("cpu")
 
+                os.system("nvidia-smi")
                 print("▶ Preparing for logprob inference...", flush=True)
+
                 with timer.time("logprob_inference_prep"):
                     policy.prepare_for_lp_inference()
 
+                os.system("nvidia-smi")
                 print("▶ Computing logprobs...", flush=True)
+
                 with timer.time("policy_and_reference_logprobs"):
                     fprop_logprobs = policy.get_logprobs(train_data)["logprobs"]
                     reference_logprobs = policy.get_reference_policy_logprobs(
@@ -1413,15 +1419,17 @@ def grpo_train(
                                 flush=True,
                             )
 
+                os.system("nvidia-smi")
                 print("▶ Preparing for training...", flush=True)
                 with timer.time("training_prep"):
                     policy.prepare_for_training()  # set model train and reload optim to GPU
                     POLICY_GENERATION_STALE = True
 
+                os.system("nvidia-smi")
                 print("▶ Training policy...", flush=True)
                 with timer.time("policy_training"):
                     train_results = policy.train(train_data, loss_fn)
-
+                os.system("nvidia-smi")
                 # Recompute KV scales after policy training if needed
                 if sync_kv_scales:
                     with timer.time("recompute_kv_scales"):
@@ -1480,6 +1488,7 @@ def grpo_train(
                 )
 
                 metrics = {
+                    "step": current_step,
                     "loss": train_results["loss"].numpy(),
                     "grad_norm": train_results["grad_norm"].numpy(),
                     "reward": rewards.numpy(),

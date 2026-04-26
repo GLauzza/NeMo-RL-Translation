@@ -118,9 +118,9 @@ def generate_responses(
         generated_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
         
     print("Lengths:", unpadded_sequence_lengths)
-    for i in range(0, len(generated_texts), 2):
-        # if unpadded_sequence_lengths[i] < 32768 and unpadded_sequence_lengths[i+1] < 32768:
-        #     print(f"\n\n\nGENERATION {i}-------------------------------------------------\n\nORIGINAL--------:\n\n{generated_texts[i]}\n\nTRANSLATED--------:\n\n{generated_texts[i+1]}")
+    # for i in range(0, len(generated_texts), 2):
+    #     if unpadded_sequence_lengths[i] < 32768 and unpadded_sequence_lengths[i+1] < 32768:
+    #         print(f"\n\n\nGENERATION {i}-------------------------------------------------\n\nORIGINAL--------:\n\n{generated_texts[i]}\n\nTRANSLATED--------:\n\n{generated_texts[i+1]}")
 
     # Append to message log
     for i, (text, input_length, total_length) in enumerate(

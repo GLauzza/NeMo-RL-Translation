@@ -1,18 +1,18 @@
 from typing import Any, Optional
 
-from datasets import Dataset, load_dataset
+from datasets import Dataset, load_dataset, load_from_disk
 
 from nemo_rl.data.interfaces import TaskDataSpec
 
 
 def format_math(
-    data: dict[str, str | float | int], output_key: str = "expected_answer"
+    data: dict[str, str | float | int], output_key: str = "answer"
 ) -> dict[str, list[Any] | str]:
     return {
         "messages": [
             {
                 "role": "user",
-                "content": data["problem"],
+                "content": data["question_fr"],
             },
             {
                 "role": "assistant",
@@ -28,7 +28,7 @@ def prepare_nemotron_math_v2_dataset(
     split: str = "low",
     seed: int = 42,
     test_size: float = 0.05,
-    output_key: str = "expected_answer",
+    output_key: str = "answer",
 ) -> dict[str, Dataset | None]:
     """Load and split the Nemotron-Math-v2 dataset into train and validation sets using HF's train_test_split."""
     print(
@@ -36,8 +36,8 @@ def prepare_nemotron_math_v2_dataset(
     )
 
     # Load the original dataset
-    original_ds = load_dataset("/lustre/fsn1/projects/rech/knb/ukq43aj/.cache/huggingface/hub/datasets--nvidia--Nemotron-Math-v2/snapshots/8e793210e175b6406c752a870f585f62de98c0d3", split=split)
-    original_ds = original_ds.shuffle().select(range(1000)).filter(lambda x: len(x["tools"]) == 0)
+    original_ds = load_from_disk("/lustre/fsn1/projects/rech/knb/ukq43aj/Datasets/Nemotron-Math-v2-low-FR-answer")
+    original_ds = original_ds.shuffle().filter(lambda x: len(x["tools"]) == 0)
 
     # Split into train and validation sets using HF's train_test_split
     split_ds = original_ds.train_test_split(test_size=test_size, seed=seed)
@@ -66,7 +66,7 @@ class Nemotron_math_v2_Dataset:
         split: str = "low",
         seed: int = 42,
         test_size: float = 0.05,
-        output_key: str = "expected_answer",
+        output_key: str = "answer",
         prompt_file: Optional[str] = None,
     ):
         """Initialize the Nemotron_math_v2 dataset with train/validation split.

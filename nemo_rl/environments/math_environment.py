@@ -108,11 +108,11 @@ class HFVerifyWorker:
                         ret_score, extracted_answer = self.verify_func(
                             [ground_truth_parsable], [response]
                         )
-                        ret_score *= is_translated
                     else:
                         raise ValueError(
                             f"Unknown math_verify_impl: {math_verify_impl}. Expected 'hf_math_verify' or 'dapo_math_verify'."
                         )
+                    ret_score *= is_translated
 
                 results.append(float(ret_score))
 

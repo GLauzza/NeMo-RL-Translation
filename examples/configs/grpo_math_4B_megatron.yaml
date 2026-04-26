@@ -5,6 +5,7 @@ grpo:
   num_prompts_per_step: 4
   num_generations_per_prompt: 16
   overlong_filtering: true
+  val_period: 10000
   # async_grpo:
   #   enabled: true
   #   max_trajectory_age_steps: 1  # Maximum age, in training steps, for trajectories
@@ -13,9 +14,13 @@ grpo:
 
 
 checkpointing:
-  enabled: false
-  checkpoint_dir: "results/grpo_4b_megatron"
+  enabled: true
+  checkpoint_dir: "results/grpo_4b_megatron_2"
+  model_repo_id: "Qwen3-4B-Thinking-2507-SFT"
+  metric_name: "train:step" # one of "val:" or "train:" followed by the metric name
   checkpoint_must_save_by: null
+  keep_top_k: 100
+  save_period: 10
 
 policy:
   # model_name: "/lustre/fsmisc/dataset/HuggingFace_Models/Qwen/Qwen3-4B"
@@ -23,7 +28,7 @@ policy:
   model_name: "/lustre/fsn1/projects/rech/knb/ukq43aj/Models/Qwen3-4B-Thinking-2507"
   tokenizer:
     name: ${policy.model_name} ## specify if you'd like to use a tokenizer different from the model's default
-  train_global_batch_size: 1
+  train_global_batch_size: 16
   train_micro_batch_size: 1
   generation_batch_size: 1 # Only used when generating using HF backend
   logprob_batch_size: 1
@@ -46,13 +51,13 @@ policy:
     tensor_model_parallel_size: 4
     # On H100, can run with pp=1 for better performance with expandable segments (which is enabled by default)
     pipeline_model_parallel_size: 1
-    context_parallel_size: 1
+    context_parallel_size: 2
     pipeline_dtype: ${policy.precision}
 
     optimizer:
       optimizer: "adam"
-      lr: 3.0e-7
-      min_lr: 3.0e-8
+      lr: 5.0e-6
+      min_lr: 5.0e-7
       weight_decay: 0.01
       bf16: true
       fp16: false
@@ -67,8 +72,11 @@ policy:
       weight_decay_incr_style: "constant"
       lr_decay_style: "constant"
       lr_decay_iters: 1000
-      lr_warmup_iters: 13
-      lr_warmup_init: 3.0e-8
+      lr_warmup_iters: 20
+      lr_warmup_init: 5.0e-7
+
+    # use_linear_ce_fusion_loss: true
+    # linear_ce_fusion_chunk_size: 1
 
     # fp8_cfg:
     #   enabled: true
@@ -102,7 +110,7 @@ policy:
       # async_engine: true
       tensor_parallel_size: 4
       pipeline_parallel_size: 1
-      gpu_memory_utilization: 0.075
+      gpu_memory_utilization: 0.15
       max_model_len: ${policy.max_total_sequence_length}
       # enforce_eager: true
       # precision: "fp8"
@@ -116,7 +124,14 @@ policy:
 
 # loss_fn:
 #   use_importance_sampling_correction: true
+  reference_policy_kl_penalty: 0.001
+  ratio_clip_min: 0.3
+  ratio_clip_max: 0.3
+  kl_output_clamp_value: 5.0
+
+logger:
+  wandb_enabled: false
 
 cluster:
   gpus_per_node: 4
-  num_nodes: 1
+  num_nodes: 2
