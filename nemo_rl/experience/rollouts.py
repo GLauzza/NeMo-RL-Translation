@@ -256,6 +256,8 @@ async def generate_responses_async(
 def calculate_rewards(
     batch: BatchedDataDict[DatumSpec],
     task_to_env: dict[str, EnvironmentInterface],
+    generated_ids: Optional[list[torch.Tensor]] = None,
+    master_config = None,
 ) -> EnvironmentReturn:
     """Calculate rewards for generated responses and get environment feedback.
 
@@ -277,6 +279,26 @@ def calculate_rewards(
         for i in range(len(batch["message_log"]))
     ]
     task_names = batch["task_name"]
+
+    num_generations_per_prompt = master_config["grpo"]["num_generations_per_prompt"]
+    num_prompts_per_step = master_config["grpo"]["num_prompts_per_step"]
+    max_total_sequence_length = master_config["policy"]["max_total_sequence_length"]
+    lengths = []
+    for i in range(num_prompts_per_step):
+        lengths_prompt = []
+        for j in range(num_generations_per_prompt):
+            lengths_prompt.append(len(generated_ids[(i*num_generations_per_prompt)+j]))
+        min_length = min(lengths_prompt + [0.8*max_total_sequence_length])
+        mean_en_length = sum([lengths_prompt[i] for i in range(0, len(lengths_prompt), 2)])/(len(lengths_prompt)//2)
+        max_length = max([l for l in lengths_prompt + [0.8*max_total_sequence_length] if l < 0.8*max_total_sequence_length])
+        for length in lengths_prompt:
+            if min_length == max_length or (length >= 0.8*mean_en_length and length <= 1.2*mean_en_length):
+                lengths.append(1)
+            elif length > 1.2*mean_en_length:
+                lengths.append(1 - 0.8*((length-1.2*mean_en_length)/(max_length-1.2*mean_en_length)))
+            elif length < 0.8*mean_en_length:
+                lengths.append(0.2 + 0.8*((length-min_length)/(0.8*mean_en_length-min_length)))
+
 
     # Group messages by task type
     task_groups: dict[str, list[tuple[int, LLMMessageLogType]]] = {}
@@ -300,7 +322,7 @@ def calculate_rewards(
         env_info = [batch["extra_env_info"][i] for i in indices]
 
         # Submit task to environment and store future
-        future = task_to_env[task_name].step.remote(messages, env_info)  # type: ignore # ray actor call
+        future = task_to_env[task_name].step.remote(messages, env_info, lengths)  # type: ignore # ray actor call
         futures.append(future)
         future_to_indices[future] = indices
 
@@ -368,6 +390,7 @@ def run_multi_turn_rollout(
     max_seq_len: int,
     max_rollout_turns: int = 999999,
     greedy: bool = False,
+    master_config = None,
 ) -> tuple[BatchedDataDict[DatumSpec], dict[str, Any]]:
     """Runs a multi-turn rollout loop, interacting with the environment.
 
@@ -467,7 +490,7 @@ def run_multi_turn_rollout(
         total_gen_tokens_per_turn.append(sum(len(ids) for ids in generated_ids))
 
         # Calculate rewards and get environment feedback
-        env_output: EnvironmentReturn = calculate_rewards(active_batch, task_to_env)
+        env_output: EnvironmentReturn = calculate_rewards(active_batch, task_to_env, generated_ids, master_config)
 
         total_rewards[active_indices] += env_output.rewards
 

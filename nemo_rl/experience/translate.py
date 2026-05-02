@@ -269,7 +269,7 @@ def infer_chunked(policy_generation, tokenizer, model_id, greedy, raw_dataset, c
     return raw_dataset
 
 
-def translate(generated_texts, policy_generation, tokenizer, greedy, generation_outputs, input_lengths, max_seq_len, batch_size=-1, chunk_size=256, discard_ratio=1.75, input_name="solution", output_name="solution_fr"):
+def translate(generated_texts, policy_generation, tokenizer, greedy, generation_outputs, input_lengths, max_seq_len, batch_size=-1, chunk_size=256, discard_ratio=1.6, input_name="solution", output_name="solution_fr"):
     os.system("nvidia-smi")
 
     model_id = "/lustre/fsn1/projects/rech/knb/ukq43aj/Models/Qwen3-32B-FP8-dynamic"

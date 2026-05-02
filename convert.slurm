@@ -28,4 +28,4 @@ export WANDB_MODE=offline
 export NRL_VLLM_ASYNC_TIMEOUT_SECONDS=1200
 
 
-srun uv run examples/converters/convert_megatron_to_hf.py --config=$SCRATCH/rl/nemo-rl/results/grpo_4b_megatron_2/step_130/config.yaml --megatron-ckpt-path=$SCRATCH/rl/nemo-rl/results/grpo_4b_megatron_2/step_130/policy/weights/iter_0000000 --hf-ckpt-path=$SCRATCH/Models/Qwen3-4B-Thinking-2507-SFT-2-nemorl-130
+srun uv run examples/converters/convert_megatron_to_hf.py --config=$SCRATCH/rl/nemo-rl/results/grpo_4b_megatron_3/step_60/config.yaml --megatron-ckpt-path=$SCRATCH/rl/nemo-rl/results/grpo_4b_megatron_3/step_60/policy/weights/iter_0000000 --hf-ckpt-path=$SCRATCH/Models/Qwen3-4B-Thinking-2507-SFT-3-nemorl-60

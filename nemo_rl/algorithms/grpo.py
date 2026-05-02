@@ -1207,6 +1207,7 @@ def grpo_train(
                                 "max_rollout_turns"
                             ],
                             greedy=False,
+                            master_config=master_config,
                         )
                     policy_generation.finish_generation()
 
@@ -1843,6 +1844,7 @@ def validate(
                     max_seq_len=master_config["policy"]["max_total_sequence_length"],
                     max_rollout_turns=master_config["grpo"]["max_rollout_turns"],
                     greedy=False,
+                    master_config=master_config,
                 )
 
             total_rewards.extend(val_batch["total_reward"].tolist())

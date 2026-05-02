@@ -36,7 +36,7 @@ def prepare_nemotron_math_v2_dataset(
     )
 
     # Load the original dataset
-    original_ds = load_from_disk("/lustre/fsn1/projects/rech/knb/ukq43aj/Datasets/Nemotron-Math-v2-low-FR-answer")
+    original_ds = load_from_disk("/lustre/fsn1/projects/rech/knb/ukq43aj/Datasets/Nemotron-Math-v2-FR-answer")
     original_ds = original_ds.shuffle().filter(lambda x: len(x["tools"]) == 0)
 
     # Split into train and validation sets using HF's train_test_split
