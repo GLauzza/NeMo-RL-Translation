@@ -56,8 +56,8 @@ policy:
 
     optimizer:
       optimizer: "adam"
-      lr: 5.0e-6
-      min_lr: 5.0e-7
+      lr: 3.0e-6
+      min_lr: 3.0e-7
       weight_decay: 0.01
       bf16: true
       fp16: false
@@ -73,7 +73,7 @@ policy:
       lr_decay_style: "constant"
       lr_decay_iters: 1000
       lr_warmup_iters: 20
-      lr_warmup_init: 5.0e-7
+      lr_warmup_init: 3.0e-7
 
     # use_linear_ce_fusion_loss: true
     # linear_ce_fusion_chunk_size: 1

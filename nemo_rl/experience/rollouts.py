@@ -290,7 +290,8 @@ def calculate_rewards(
             lengths_prompt.append(len(generated_ids[(i*num_generations_per_prompt)+j]))
         min_length = min(lengths_prompt + [0.8*max_total_sequence_length])
         mean_en_length = sum([lengths_prompt[i] for i in range(0, len(lengths_prompt), 2)])/(len(lengths_prompt)//2)
-        max_length = max([l for l in lengths_prompt + [0.8*max_total_sequence_length] if l < 0.8*max_total_sequence_length])
+        filtered_lengths = [l for l in lengths_prompt if l <= 0.8*max_total_sequence_length]
+        max_length = max(filtered_lengths) if len(filtered_lengths) > 0 else 0.8*max_total_sequence_length
         for length in lengths_prompt:
             if min_length == max_length or (length >= 0.8*mean_en_length and length <= 1.2*mean_en_length):
                 lengths.append(1)
