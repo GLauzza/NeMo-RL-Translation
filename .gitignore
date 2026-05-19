@@ -6,8 +6,10 @@
 *.tar
 *.tar.gz
 .venv
+.venv_bkup
 venv
 venvs
+venvs_bkup
 __pycache__/
 _build/
 build/

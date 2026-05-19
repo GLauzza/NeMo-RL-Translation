@@ -15,7 +15,7 @@ grpo:
 
 checkpointing:
   enabled: true
-  checkpoint_dir: "results/grpo_4b_megatron_4"
+  checkpoint_dir: "results/grpo_4b_megatron_5"
   model_repo_id: "Qwen3-4B-Thinking-2507-SFT"
   metric_name: "train:step" # one of "val:" or "train:" followed by the metric name
   checkpoint_must_save_by: null
@@ -124,9 +124,9 @@ policy:
 
 # loss_fn:
 #   use_importance_sampling_correction: true
-  reference_policy_kl_penalty: 0.003
-  ratio_clip_min: 0.2
-  ratio_clip_max: 0.2
+  reference_policy_kl_penalty: 0.001
+  ratio_clip_min: 0.3
+  ratio_clip_max: 0.3
   kl_output_clamp_value: 5.0
 
 data:

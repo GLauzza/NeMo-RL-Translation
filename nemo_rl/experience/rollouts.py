@@ -293,12 +293,12 @@ def calculate_rewards(
         filtered_lengths = [l for l in lengths_prompt if l <= 0.8*max_total_sequence_length]
         max_length = max(filtered_lengths) if len(filtered_lengths) > 0 else 0.8*max_total_sequence_length
         for length in lengths_prompt:
-            if min_length == max_length or (length >= 0.8*mean_en_length and length <= 1.2*mean_en_length):
+            if min_length == max_length or (length >= 0.9*mean_en_length and length <= 1.3*mean_en_length):
                 lengths.append(1)
-            elif length > 1.2*mean_en_length:
-                lengths.append(1 - 0.8*((length-1.2*mean_en_length)/(max_length-1.2*mean_en_length)))
-            elif length < 0.8*mean_en_length:
-                lengths.append(0.2 + 0.8*((length-min_length)/(0.8*mean_en_length-min_length)))
+            elif length > 1.3*mean_en_length:
+                lengths.append(1 - 0.8*((length-1.3*mean_en_length)/(max_length-1.3*mean_en_length)))
+            elif length < 0.9*mean_en_length:
+                lengths.append(0.2 + 0.8*((length-min_length)/(0.9*mean_en_length-min_length)))
 
 
     # Group messages by task type
