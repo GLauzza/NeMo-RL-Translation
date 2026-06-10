@@ -76,7 +76,7 @@ class HFVerifyWorker:
         self,
         pred_responses: list[str],
         ground_truths: list[str],
-        translation_statuses: list[bool],
+        french_statuses: list[bool],
         lengths_chunk: list[int],
         return_extracted_answer: bool = False,
         **kwargs,
@@ -95,7 +95,7 @@ class HFVerifyWorker:
         results = []
         extracted_answers: list[str | None] = []
 
-        for response, ground_truth, is_translated, length in zip(pred_responses, ground_truths, translation_statuses, lengths_chunk):
+        for response, ground_truth, is_french, length in zip(pred_responses, ground_truths, french_statuses, lengths_chunk):
             try:
                 with _mute_output():
                     math_verify_impl = kwargs.get("math_verify_impl", "hf_math_verify")
@@ -113,7 +113,7 @@ class HFVerifyWorker:
                         raise ValueError(
                             f"Unknown math_verify_impl: {math_verify_impl}. Expected 'hf_math_verify' or 'dapo_math_verify'."
                         )
-                    ret_score *= is_translated*length
+                    ret_score *= is_french*length
 
                 results.append(float(ret_score))
 
@@ -271,6 +271,7 @@ class MathEnvironment(EnvironmentInterface[MathEnvironmentMetadata]):
         message_log_batch: list[LLMMessageLogType],
         metadata: list[MathEnvironmentMetadata],
         lengths: list[int],
+        is_french: list[bool],
         return_extracted_answer: bool = False,
     ) -> EnvironmentReturn[MathEnvironmentMetadata]:
         """Runs a step in the math environment.
@@ -304,7 +305,7 @@ class MathEnvironment(EnvironmentInterface[MathEnvironmentMetadata]):
             assistant_response_batch, self.num_workers
         )
         chunked_ground_truths = chunk_list_to_workers(ground_truths, self.num_workers)
-        chunked_translation_statuses = chunk_list_to_workers([(i%2) == 1 for i in range(len(ground_truths))], self.num_workers)
+        chunked_french_statuses = chunk_list_to_workers(is_french, self.num_workers)
         chunked_lengths = chunk_list_to_workers(lengths, self.num_workers)
 
         # Process each chunk in parallel
@@ -312,13 +313,13 @@ class MathEnvironment(EnvironmentInterface[MathEnvironmentMetadata]):
             self.workers[i].verify.remote(
                 chunk,
                 ground_truth_chunk,
-                translation_statuses_chunk,
+                french_statuses_chunk,
                 lengths_chunk,
                 return_extracted_answer,
                 math_verify_impl=self.cfg.get("math_verify_impl", "hf_math_verify"),
             )
-            for i, (chunk, ground_truth_chunk, translation_statuses_chunk, lengths_chunk) in enumerate(
-                zip(chunked_assistant_response_batch, chunked_ground_truths, chunked_translation_statuses, chunked_lengths)
+            for i, (chunk, ground_truth_chunk, french_statuses_chunk, lengths_chunk) in enumerate(
+                zip(chunked_assistant_response_batch, chunked_ground_truths, chunked_french_statuses, chunked_lengths)
             )
         ]
 

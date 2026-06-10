@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
 from vllm import LLM, SamplingParams
+import fasttext
 
 import gc
 import torch
@@ -39,6 +40,51 @@ Text:
 """
 )
 
+
+def remove_math(text):
+    letters = "a-zA-ZàâäéèêëîïôöùûüçÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ"
+    # remove latex and math content
+    text = re.sub(r"\$\$(.*?)\$\$", " ", text)
+    text = re.sub(r"\$(.*?)\$", " ", text)    
+    text = re.sub(r"\\\[(.*?)\\\]", " ", text)
+    text = re.sub(r"\\\{(.*?)\\\}", " ", text)    
+    text = re.sub(r"\{(.*?)\}", " ", text)
+    text = re.sub(r"\[(.*?)\]", " ", text)
+    text = re.sub(r"\((.*?)\)", " ", text)
+    text = re.sub(rf"\\[{letters}]+\{{.*?\}}", " ", text)
+    text = re.sub(rf"\\[{letters}]+", " ", text)
+    # ... -> .
+    text = re.sub(r"\s*\.\s*\.\s*\.\s*", ". ", text)
+    # remove words containing non-words
+    text = re.sub(rf"\b\w*[^{letters}0-9\.\s'’:\?\!,;-]+\w*\b", " ", text)
+    # remove special chars
+    text = re.sub(rf"[^{letters}\.\s'’:\?\!,;]", " ", text, flags=re.UNICODE)
+    # remove isolated single character
+    for _ in range(2):
+        text = re.sub(rf"\b[{letters}0-9]['’]*\b(?:\s+\b[{letters}0-9]['’]*\b)+", " ", text)
+        text = re.sub(rf"\s+[^{letters}0-9:\?\!;]\s+", " ", text)
+        text = re.sub(r"\W(?:\s+\W)+", " ", text)
+    # remove isolated numbers
+    text = re.sub(r"(?:\s+(?:(?:mod)?[0-9]+[\.,]?)+){2,}\s+", " ", text)
+    # strip
+    text = re.sub(r"\s+", " ", text).strip()
+    # remove repeated words
+    text = re.sub(rf"\b((?:[{letters}0-9]+\s*){{1,5}})\b(?:\s+\1)+", r"\1", text)
+    return text
+
+
+def is_french(model, text):
+    non_math_text = remove_math(text).split("\n")
+    output = model.predict(non_math_text, k=5)
+    unique_langs = set([lang for langs in output[0] for lang in langs])
+    languages = {unique_lang:0 for unique_lang in unique_langs}
+    for langs, probs in zip(output[0], output[1]):
+        for lang, prob in zip(langs, probs):
+            languages[lang] += prob
+    languages = {lang:(prob/len(non_math_text)) for lang, prob in languages.items()}
+    fr_percent = languages.get("__label__fra_Latn",0)
+    print(f"French percentage: {fr_percent}")
+    return fr_percent > 0.98
 
 def chunk(text, tokenizer, chunk_size):
     # print("input text:", text)
@@ -272,28 +318,41 @@ def infer_chunked(policy_generation, tokenizer, model_id, greedy, raw_dataset, c
 def translate(generated_texts, policy_generation, tokenizer, greedy, generation_outputs, input_lengths, max_seq_len, batch_size=-1, chunk_size=256, discard_ratio=1.6, input_name="solution", output_name="solution_fr"):
     os.system("nvidia-smi")
 
-    model_id = "/lustre/fsn1/projects/rech/knb/ukq43aj/Models/Qwen3-32B-FP8-dynamic"
+    model_id = os.environ.get("NEMO_RL_TRANSLATION_MODEL")
     tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+    fasttext_model = fasttext.load_model(os.environ.get("DSDIR")+"/HuggingFace_Models/facebook/fasttext-language-identification/model.bin")
 
     dataset = Dataset.from_dict({input_name:[text for text in generated_texts]})
 
-    dataset_dict = {"id":[], "type": [], input_name: []}
+    dataset_dict = {"id":[], "type": [], "is_french": [], input_name: []}
 
-    for i, sample in enumerate(dataset):
+    i = 0
+    original_is_french = []
+    for sample in dataset:
         think_part = sample[input_name].split("<think>")[-1].split("</think>")[0].strip()
         dataset_dict["id"].append(i)
         dataset_dict["type"].append("think")
+        is_think_french = is_french(fasttext_model, think_part)
+        dataset_dict["is_french"].append(is_think_french)
         dataset_dict[input_name].append(think_part)
+        original_is_french.append(is_think_french)
+        i += 1
         if sample[input_name].count("</think>") > 0:
             answer_part = sample[input_name].split("</think>")[-1].strip()
             dataset_dict["id"].append(i)
             dataset_dict["type"].append("answer")
+            is_answer_french = is_french(fasttext_model, answer_part)
+            dataset_dict["is_french"].append(is_answer_french)
             dataset_dict[input_name].append(answer_part)
+            original_is_french[-1] = original_is_french[-1] and is_answer_french
+            i += 1
 
     dataset = Dataset.from_dict(dataset_dict)
+    english_dataset = dataset.filter(lambda x: not x["is_french"])
 
     chunked_dataset, dataloader, _ = prepare_inference_data(
-        dataset,
+        english_dataset,
         tokenizer,
         batch_size=batch_size,
         input_name=input_name,
@@ -304,41 +363,52 @@ def translate(generated_texts, policy_generation, tokenizer, greedy, generation_
 
     # dataset = Dataset.from_dict({input_name:[text for text in generated_texts], output_name:[text for text in generated_texts]})
     start_time = time.time()
-    dataset = infer_chunked(policy_generation, tokenizer, model_id, greedy, dataset, chunked_dataset, dataloader, output_name, batch_size, input_name, chunk_size, discard_ratio)
+    english_dataset = infer_chunked(policy_generation, tokenizer, model_id, greedy, english_dataset, chunked_dataset, dataloader, output_name, batch_size, input_name, chunk_size, discard_ratio)
     print(f"VLLM translation took {time.time() - start_time}s")
     # for i, sample in enumerate(dataset):
     #     print(f"SAMPLE: {i}", sample[output_name][:100])
+    def recompute_is_french(sample):
+        sample["is_french"] = is_french(fasttext_model, sample[output_name])
+        return sample
+    english_dataset = english_dataset.map(recompute_is_french)
 
-    merged_dataset_dict = {input_name: [], output_name: []}
-    for sample in dataset:
+    merged_dataset_dict = {"text": [], "is_french": []}
+    for i in range(len(dataset)):
+        if len(english_dataset.filter(lambda x: x["id"] == i)) > 0:
+            sample = english_dataset.filter(lambda x: x["id"] == i)[0]
+            text_column = output_name
+        else:
+            sample = dataset.filter(lambda x: x["id"] == i)[0]
+            text_column = input_name
         if sample["type"] == "think":
-            merged_dataset_dict[input_name].append("<think>\n\n"+sample[input_name])
-            merged_dataset_dict[output_name].append("<think>\n\n"+sample[output_name])
+            merged_dataset_dict["text"].append("<think>\n\n"+sample[text_column])
+            merged_dataset_dict["is_french"].append(sample["is_french"])
         elif sample["type"] == "answer":
-            merged_dataset_dict[input_name][-1] += "</think>\n\n"+sample[input_name]
-            merged_dataset_dict[output_name][-1] += "</think>\n\n"+sample[output_name]
+            merged_dataset_dict["text"][-1] += "</think>\n\n"+sample[text_column]
+            merged_dataset_dict["is_french"][-1] = merged_dataset_dict["is_french"][-1] and sample["is_french"]
 
     dataset = Dataset.from_dict(merged_dataset_dict)
+    translated_is_french = dataset["is_french"]
 
     new_generation_lengths = []
     new_unpadded_sequence_lengths = []
     for i ,(sample, input_length) in enumerate(zip(dataset, input_lengths)):
-        if "<DISCARDED>" in sample[output_name]:
+        if "<DISCARDED>" in sample["text"]:
             print(f"DISCARDED {i}---------------------------------------------------------------------------")
             new_generation_lengths.append(max_seq_len-input_length)
         else:
-            generation_length = tokenizer(sample[output_name], return_length=True)["length"][0]
+            generation_length = tokenizer(sample["text"], return_length=True)["length"][0]
             new_generation_lengths.append(min(generation_length, max_seq_len-input_length))
         new_unpadded_sequence_lengths.append(min(input_length + new_generation_lengths[-1], max_seq_len))
     max_len = max(new_unpadded_sequence_lengths + [len(generation_outputs["output_ids"][0])])
     
     new_output_ids = []
     for sample, output_ids, input_length in zip(dataset, generation_outputs["output_ids"], input_lengths):
-        if "<DISCARDED>" in sample[output_name]:
+        if "<DISCARDED>" in sample["text"]:
             new_output_ids.append(output_ids[:input_length].tolist() + [tokenizer(" discarded")["input_ids"][0]]*(max_len-input_length))
             print(f"Discarded is len {len(new_output_ids[-1])} {input_length}, {max_len}, {max_seq_len}")
         else:
-            ids = (output_ids[:input_length].tolist() + tokenizer(sample[output_name])["input_ids"])[:max_seq_len]
+            ids = (output_ids[:input_length].tolist() + tokenizer(sample["text"])["input_ids"])[:max_seq_len]
             new_output_ids.append(ids + [0]*(max_len-len(ids)))
             print(f"Non discarded is len {len(new_output_ids[-1])} {len(ids)}, {max_len}, {max_seq_len}")
 
@@ -373,4 +443,5 @@ def translate(generated_texts, policy_generation, tokenizer, greedy, generation_
     # print(tokenizer.batch_decode(torch.tensor(new_output_ids[0])))
     # print(input_lengths, new_generation_lengths, new_unpadded_sequence_lengths)
 
-    return generation_outputs_translation, generation_outputs
+    print(f"original_is_french: {list(original_is_french)}\ntranslated_is_french: {list(translated_is_french)}")
+    return generation_outputs_translation, generation_outputs, list(original_is_french) + list(translated_is_french)

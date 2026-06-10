@@ -72,7 +72,7 @@ def generate_responses(
     for do_translate in range(2):
         os.system("nvidia-smi")
         if do_translate:
-            generation_outputs_translation, generation_outputs = translate(generated_texts, policy_generation, tokenizer, greedy, generation_outputs, generation_input_data["input_lengths"], max_seq_len)
+            generation_outputs_translation, generation_outputs, is_french = translate(generated_texts, policy_generation, tokenizer, greedy, generation_outputs, generation_input_data["input_lengths"], max_seq_len)
 
             generation_outputs = BatchedDataDict[GenerationOutputSpec]({
                 "output_ids": torch.stack([generation_outputs["output_ids"], generation_outputs_translation["output_ids"]], dim=1).reshape(-1, generation_outputs["output_ids"].shape[1]),
@@ -145,7 +145,7 @@ def generate_responses(
         "total_generated_tokens": generation_lengths.sum().item(),
     }
 
-    return batch, generated_ids, gen_metrics
+    return batch, generated_ids, gen_metrics, is_french
 
 
 async def generate_responses_async(
@@ -255,6 +255,7 @@ async def generate_responses_async(
 
 def calculate_rewards(
     batch: BatchedDataDict[DatumSpec],
+    is_french: list[bool],
     task_to_env: dict[str, EnvironmentInterface],
     generated_ids: Optional[list[torch.Tensor]] = None,
     master_config = None,
@@ -323,7 +324,7 @@ def calculate_rewards(
         env_info = [batch["extra_env_info"][i] for i in indices]
 
         # Submit task to environment and store future
-        future = task_to_env[task_name].step.remote(messages, env_info, lengths)  # type: ignore # ray actor call
+        future = task_to_env[task_name].step.remote(messages, env_info, lengths, is_french)  # type: ignore # ray actor call
         futures.append(future)
         future_to_indices[future] = indices
 
@@ -472,7 +473,7 @@ def run_multi_turn_rollout(
             generation_input_data["vllm_videos"] = active_batch["vllm_videos"]
 
         # generate_responses updates active_batch["message_log"] in-place
-        active_batch, generated_ids, gen_metrics = generate_responses(
+        active_batch, generated_ids, gen_metrics, is_french = generate_responses(
             policy_generation,
             generation_input_data,
             active_batch,
@@ -491,7 +492,7 @@ def run_multi_turn_rollout(
         total_gen_tokens_per_turn.append(sum(len(ids) for ids in generated_ids))
 
         # Calculate rewards and get environment feedback
-        env_output: EnvironmentReturn = calculate_rewards(active_batch, task_to_env, generated_ids, master_config)
+        env_output: EnvironmentReturn = calculate_rewards(active_batch, is_french, task_to_env, generated_ids, master_config)
 
         total_rewards[active_indices] += env_output.rewards
 

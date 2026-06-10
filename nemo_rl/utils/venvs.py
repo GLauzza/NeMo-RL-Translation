@@ -57,9 +57,9 @@ def create_local_venv(
     #
     # You can override this location by setting the NEMO_RL_VENV_DIR environment variable
 
-    # NEMO_RL_VENV_DIR = os.path.normpath(
-    #     os.environ.get("NEMO_RL_VENV_DIR", DEFAULT_VENV_DIR)
-    # )
+    NEMO_RL_VENV_DIR = os.path.normpath(
+        os.environ.get("NEMO_RL_VENV_DIR", DEFAULT_VENV_DIR)
+    )
     # logger.info(f"NEMO_RL_VENV_DIR is set to {NEMO_RL_VENV_DIR}.")
 
     # # Create the venv directory if it doesn't exist
@@ -99,8 +99,7 @@ def create_local_venv(
     # subprocess.run(exec_cmd, env=env, check=True)
 
     # Return the path to the python executable in the virtual environment
-    venv_path = "/lustre/fsn1/projects/rech/knb/ukq43aj/rl/nemo-rl/.venv"
-    python_path = os.path.join(venv_path, "bin", "python")
+    python_path = os.path.join(NEMO_RL_VENV_DIR, "bin", "python")
     return python_path
 
 

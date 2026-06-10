@@ -121,11 +121,9 @@ sleep 60
 ray status || { echo "Ray failed to start"; exit 1; }
 
 # run code
+export NEMO_RL_TRANSLATION_MODEL="/lustre/fsn1/projects/rech/knb/ukq43aj/Models/Qwen3-32B-FP8-dynamic" 
+export NEMO_RL_VENV_DIR="/lustre/fsn1/projects/rech/knb/ukq43aj/rl/nemo-rl/.venv"
 uv run --no-build-isolation python ./examples/run_grpo_math.py \
   --config ./examples/configs/grpo_math_4B_megatron.yaml \
   cluster.num_nodes=2 \
   cluster.gpus_per_node=4
-
-
-
-#NUM_ACTOR_NODES=2 NRL_FORCE_REBUILD_VENVS=true srun uv run ./examples/run_grpo_math.py --config ./examples/configs/grpo_math_4B_megatron.yaml

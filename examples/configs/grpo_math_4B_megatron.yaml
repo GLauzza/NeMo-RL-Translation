@@ -15,7 +15,7 @@ grpo:
 
 checkpointing:
   enabled: true
-  checkpoint_dir: "results/grpo_4b_megatron_5"
+  checkpoint_dir: "results/grpo_4b_megatron_6"
   model_repo_id: "Qwen3-4B-Thinking-2507-SFT"
   metric_name: "train:step" # one of "val:" or "train:" followed by the metric name
   checkpoint_must_save_by: null
